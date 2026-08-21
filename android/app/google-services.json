@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "529825431904",
+    "project_id": "dhaka-bus-tracker-327-454d1",
+    "storage_bucket": "dhaka-bus-tracker-327-454d1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:529825431904:android:8d9d451ae2ebf60e109e05",
+        "android_client_info": {
+          "package_name": "com.example.dhaka_bus_tracker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBY0CT8THq9Vs0ublsEnFLYsT7u3EdCVc0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

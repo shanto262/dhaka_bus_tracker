@@ -1,12 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'providers/transit_provider.dart';
 import 'providers/language_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/main_navigation_screen.dart';
 import 'providers/settings_provider.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  // Trigger the bus upload script! (Commented out because data is already in Firestore)
+  // await uploadInitialBuses();
+
   runApp(
     MultiProvider(
       providers: [
@@ -60,4 +73,65 @@ class DhakaBusTrackerApp extends StatelessWidget {
       home: const MainNavigationScreen(),
     );
   }
+}
+
+Future<void> uploadInitialBuses() async {
+  final firestore = FirebaseFirestore.instance;
+  
+  // Check if already uploaded
+  final snapshot = await firestore.collection('buses').get();
+  if (snapshot.docs.isNotEmpty) {
+    debugPrint('Buses already seeded!');
+    return;
+  }
+
+  debugPrint('Fetching real stop IDs to link buses...');
+  
+  // 1. Get the real auto-generated IDs of your stops
+  final stopsSnapshot = await firestore.collection('bus_stops').get();
+  Map<String, String> dbIds = {};
+  for (var doc in stopsSnapshot.docs) {
+    dbIds[doc.data()['nameEn']] = doc.id;
+  }
+
+  // 2. Upload buses using those REAL IDs
+  final List<Map<String, dynamic>> buses = [
+    {
+      'company': 'Bikash Paribahan',
+      'companyBn': 'বিকাশ পরিবহন',
+      'routeTag': 'A-101',
+      'routeName': 'Mirpur 10 ➔ Motijheel',
+      'licensePlate': 'Dhaka Metro-Ba 11-4521',
+      'standardFare': 35.0,
+      'studentFare': 18.0,
+      'nextStopId': dbIds['Farmgate'] ?? '',
+      'etaMinutes': 4,
+      'isLive': true,
+      'currentLat': 23.7580,
+      'currentLng': 90.3890,
+      // Dynamically linking the real Firestore IDs
+      'stopIds': [dbIds['Mirpur 10'], dbIds['Farmgate'], dbIds['Shahbagh'], dbIds['Motijheel']].whereType<String>().toList(),
+    },
+    {
+      'company': 'Uttara Express',
+      'companyBn': 'উত্তরা এক্সপ্রেস',
+      'routeTag': 'U-205',
+      'routeName': 'Uttara ➔ Shahbagh',
+      'licensePlate': 'Dhaka Metro-Cha 14-8890',
+      'standardFare': 40.0,
+      'studentFare': 20.0,
+      'nextStopId': dbIds['Mohakhali'] ?? '',
+      'etaMinutes': 8,
+      'isLive': true,
+      'currentLat': 23.8650,
+      'currentLng': 90.3980,
+      'stopIds': [dbIds['Uttara'], dbIds['Mohakhali'], dbIds['Farmgate'], dbIds['Shahbagh']].whereType<String>().toList(),
+    }
+  ];
+
+  for (var bus in buses) {
+    await firestore.collection('buses').add(bus);
+  }
+
+  debugPrint('✅ All buses uploaded to Firestore successfully!');
 }
