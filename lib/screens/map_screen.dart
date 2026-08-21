@@ -4,7 +4,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../providers/transit_provider.dart';
 import '../providers/language_provider.dart';
-import '../providers/settings_provider.dart'; // Import settings provider
+import '../providers/settings_provider.dart'; 
 import '../models/bus_stop_model.dart';
 
 class MapScreen extends StatelessWidget {
@@ -14,17 +14,26 @@ class MapScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = Provider.of<TransitProvider>(context);
     final langProvider = Provider.of<LanguageProvider>(context);
-    final settingsProvider = Provider.of<SettingsProvider>(context); // Listen to settings
+    final settingsProvider = Provider.of<SettingsProvider>(context); 
+    
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    final centerLatLng = const LatLng(23.7561, 90.3872); // Dhaka Center
-
-    // Simulated user location (e.g., near Kawran Bazar / Farmgate)
+    final centerLatLng = const LatLng(23.7561, 90.3872); 
     final userLocation = const LatLng(23.7522, 90.3938);
+
+    // We use the light Voyager map as the base because it has high-contrast roads.
+    // Notice the '@2x' at the end of the URL for crisper, retina-quality rendering!
+    final baseTileLayer = TileLayer(
+      urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
+      subdomains: const ['a', 'b', 'c', 'd'],
+      userAgentPackageName: 'com.example.dhaka_bus_tracker',
+    );
 
     return Scaffold(
       appBar: AppBar(
         title: Text(langProvider.t('Dhaka Bus Tracker'), style: const TextStyle(color: Colors.white)),
         backgroundColor: Theme.of(context).colorScheme.primary,
+        elevation: 0,
       ),
       body: provider.isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -35,13 +44,22 @@ class MapScreen extends StatelessWidget {
                 onTap: (_, __) => provider.clearStopSelection(),
               ),
               children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.dhaka_bus_tracker',
-                ),
+                // The Magic Inversion Trick for Dark Mode
+                isDarkMode
+                    ? ColorFiltered(
+                        colorFilter: const ColorFilter.matrix([
+                          -1,  0,  0, 0, 255,
+                           0, -1,  0, 0, 255,
+                           0,  0, -1, 0, 255,
+                           0,  0,  0, 1,   0,
+                        ]),
+                        child: baseTileLayer,
+                      )
+                    : baseTileLayer,
+
                 MarkerLayer(
                   markers: [
-                    // 1. Show user location ONLY if Location Access is enabled in Settings
+                    // 1. User Location
                     if (settingsProvider.locationAccess)
                       Marker(
                         point: userLocation,
@@ -49,11 +67,12 @@ class MapScreen extends StatelessWidget {
                         height: 45,
                         child: Container(
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.3),
+                            color: Colors.blue.withOpacity(0.2),
                             shape: BoxShape.circle,
+                            border: Border.all(color: Colors.blue.withOpacity(0.5), width: 1),
                           ),
                           child: const Center(
-                            child: Icon(Icons.my_location, color: Colors.blue, size: 28),
+                            child: Icon(Icons.my_location, color: Colors.blueAccent, size: 24),
                           ),
                         ),
                       ),
@@ -61,14 +80,21 @@ class MapScreen extends StatelessWidget {
                     // 2. Bus Stops
                     ...provider.stops.map((stop) => Marker(
                           point: LatLng(stop.lat, stop.lng),
-                          width: 40,
-                          height: 40,
+                          width: 32,
+                          height: 32,
                           child: GestureDetector(
                             onTap: () {
                               provider.selectStop(stop);
                               _showArrivalsBottomSheet(context, stop, provider, langProvider);
                             },
-                            child: const Icon(Icons.pin_drop, color: Colors.green, size: 40),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00B159), 
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.black.withOpacity(0.5), width: 2),
+                              ),
+                              child: const Icon(Icons.directions_bus, color: Colors.white, size: 16),
+                            ),
                           ),
                         )),
 
@@ -76,9 +102,19 @@ class MapScreen extends StatelessWidget {
                     if (provider.selectedBus != null)
                       Marker(
                         point: LatLng(provider.selectedBus!.currentLat, provider.selectedBus!.currentLng),
-                        width: 50,
-                        height: 50,
-                        child: const Icon(Icons.directions_bus, color: Colors.blueAccent, size: 45),
+                        width: 48,
+                        height: 48,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.blueAccent,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 3),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 3))
+                            ]
+                          ),
+                          child: const Icon(Icons.directions_bus, color: Colors.white, size: 24),
+                        ),
                       ),
                   ],
                 ),
@@ -119,7 +155,7 @@ class MapScreen extends StatelessWidget {
                             leading: Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(8)),
-                              child: Text(bus.routeTag, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              child: Text(bus.routeTag, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade900)),
                             ),
                             title: Text(companyName, style: const TextStyle(fontWeight: FontWeight.bold)),
                             subtitle: Text(

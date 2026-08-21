@@ -10,6 +10,7 @@ class Bus {
   final String nextStopId;
   final int etaMinutes;
   final bool isLive;
+  final List<String> stopIds;
   double currentLat;
   double currentLng;
 
@@ -25,6 +26,7 @@ class Bus {
     required this.nextStopId,
     required this.etaMinutes,
     required this.isLive,
+    required this.stopIds,
     required this.currentLat,
     required this.currentLng,
   });
@@ -42,6 +44,7 @@ class Bus {
       nextStopId: json['nextStopId'],
       etaMinutes: json['etaMinutes'],
       isLive: json['isLive'],
+      stopIds: List<String>.from(json['stopIds'] ?? []),
       currentLat: (json['currentLat'] as num).toDouble(),
       currentLng: (json['currentLng'] as num).toDouble(),
     );
