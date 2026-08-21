@@ -1,0 +1,86 @@
+{
+    "stops": [
+      {
+        "id": "stop_farmgate",
+        "nameEn": "Farmgate",
+        "nameBn": "ফার্মগেট",
+        "lat": 23.7561,
+        "lng": 90.3872
+      },
+      {
+        "id": "stop_mohakhali",
+        "nameEn": "Mohakhali",
+        "nameBn": "মহাখালী",
+        "lat": 23.7776,
+        "lng": 90.4054
+      },
+      {
+        "id": "stop_kawran_bazar",
+        "nameEn": "Kawran Bazar",
+        "nameBn": "কাওরান বাজার",
+        "lat": 23.7508,
+        "lng": 90.3934
+      },
+      {
+        "id": "stop_shahbagh",
+        "nameEn": "Shahbagh",
+        "nameBn": "শাহবাগ",
+        "lat": 23.7388,
+        "lng": 90.3957
+      },
+      {
+        "id": "stop_uttara",
+        "nameEn": "Uttara Sector 10",
+        "nameBn": "উত্তরা সেক্টর ১০",
+        "lat": 23.8738,
+        "lng": 90.3965
+      }
+    ],
+    "buses": [
+      {
+        "busId": "bikash_14",
+        "company": "Bikash Paribahan",
+        "companyBn": "বিকাশ পরিবহন",
+        "routeTag": "#14",
+        "routeName": "Farmgate ➔ Uttara",
+        "licensePlate": "Dhaka Metro-Cha 11-2367",
+        "standardFare": 35.0,
+        "studentFare": 18.0,
+        "nextStopId": "stop_farmgate",
+        "etaMinutes": 2,
+        "isLive": true,
+        "currentLat": 23.7530,
+        "currentLng": 90.3890
+      },
+      {
+        "busId": "uttara_exp_47",
+        "company": "Uttara Express",
+        "companyBn": "উত্তরা এক্সপ্রেস",
+        "routeTag": "#47",
+        "routeName": "Motijheel ➔ Uttara",
+        "licensePlate": "Dhaka Metro-Ga 09-1142",
+        "standardFare": 40.0,
+        "studentFare": 20.0,
+        "nextStopId": "stop_farmgate",
+        "etaMinutes": 7,
+        "isLive": true,
+        "currentLat": 23.7480,
+        "currentLng": 90.3910
+      },
+      {
+        "busId": "brtc_119",
+        "company": "BRTC City Service",
+        "companyBn": "বিআরটিসি সিটি",
+        "routeTag": "#119",
+        "routeName": "Farmgate ➔ Airport",
+        "licensePlate": "Dhaka Metro-Ba 11-5544",
+        "standardFare": 30.0,
+        "studentFare": 15.0,
+        "nextStopId": "stop_farmgate",
+        "etaMinutes": 13,
+        "isLive": false,
+        "currentLat": 23.7420,
+        "currentLng": 90.3940
+      }
+    ]
+  }
