@@ -17,9 +17,6 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // Trigger the bus upload script! (Commented out because data is already in Firestore)
-  // await uploadInitialBuses();
-
   runApp(
     MultiProvider(
       providers: [
@@ -38,14 +35,12 @@ class DhakaBusTrackerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Listen to the theme provider
     final themeProvider = Provider.of<ThemeProvider>(context);
 
     return MaterialApp(
       title: 'Dhaka Bus Tracker',
       debugShowCheckedModeBanner: false,
       
-      // Standard Light Theme
       theme: ThemeData(
         brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(
@@ -56,7 +51,6 @@ class DhakaBusTrackerApp extends StatelessWidget {
         useMaterial3: true,
       ),
 
-      // New Dark Theme
       darkTheme: ThemeData(
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
@@ -67,7 +61,6 @@ class DhakaBusTrackerApp extends StatelessWidget {
         useMaterial3: true,
       ),
 
-      // Tell Flutter which theme to use based on the provider
       themeMode: themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
       
       home: const MainNavigationScreen(),
@@ -78,7 +71,6 @@ class DhakaBusTrackerApp extends StatelessWidget {
 Future<void> uploadInitialBuses() async {
   final firestore = FirebaseFirestore.instance;
   
-  // Check if already uploaded
   final snapshot = await firestore.collection('buses').get();
   if (snapshot.docs.isNotEmpty) {
     debugPrint('Buses already seeded!');
@@ -87,14 +79,12 @@ Future<void> uploadInitialBuses() async {
 
   debugPrint('Fetching real stop IDs to link buses...');
   
-  // 1. Get the real auto-generated IDs of your stops
   final stopsSnapshot = await firestore.collection('bus_stops').get();
   Map<String, String> dbIds = {};
   for (var doc in stopsSnapshot.docs) {
     dbIds[doc.data()['nameEn']] = doc.id;
   }
 
-  // 2. Upload buses using those REAL IDs
   final List<Map<String, dynamic>> buses = [
     {
       'company': 'Bikash Paribahan',
@@ -109,7 +99,6 @@ Future<void> uploadInitialBuses() async {
       'isLive': true,
       'currentLat': 23.7580,
       'currentLng': 90.3890,
-      // Dynamically linking the real Firestore IDs
       'stopIds': [dbIds['Mirpur 10'], dbIds['Farmgate'], dbIds['Shahbagh'], dbIds['Motijheel']].whereType<String>().toList(),
     },
     {

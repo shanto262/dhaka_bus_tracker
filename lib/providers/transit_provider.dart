@@ -20,7 +20,7 @@ class TransitProvider extends ChangeNotifier {
   List<Bus> get buses => _buses;
 
   TransitProvider() {
-    fetchTransitData(); // Fetch everything on startup
+    fetchTransitData();
   }
 
   Future<void> fetchTransitData() async {
@@ -91,7 +91,6 @@ class TransitProvider extends ChangeNotifier {
 
   List<Bus> getBusesForSelectedStop() {
     if (_selectedStop == null) return [];
-    // This will now perfectly match the real Firestore IDs!
     return _buses.where((bus) => bus.stopIds.contains(_selectedStop!.id)).toList();
   }
 }
