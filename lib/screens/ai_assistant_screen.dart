@@ -16,7 +16,10 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   final TextEditingController _controller = TextEditingController();
   bool _isTyping = false;
   
-  static const String _geminiApiKey = 'AQ.Ab8RN6Ii_33xLe-4_wSaQQfILPwB0BKgQFvL_btUXEYjZy3zfQ'; 
+  static const String _geminiApiKey = String.fromEnvironment(
+  'GEMINI_API_KEY',
+  defaultValue: 'YOUR_API_KEY_HERE',
+); 
   
   final List<Map<String, dynamic>> _messages = [];
 
