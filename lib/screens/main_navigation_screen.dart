@@ -28,7 +28,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final langProvider = Provider.of<LanguageProvider>(context);
 
     return Scaffold(
-      body: _screens[_currentIndex], // Fixed Web Focus Issue here
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),

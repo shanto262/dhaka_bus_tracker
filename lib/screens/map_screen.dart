@@ -2,13 +2,66 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:geolocator/geolocator.dart';
 import '../providers/transit_provider.dart';
 import '../providers/language_provider.dart';
 import '../providers/settings_provider.dart'; 
 import '../models/bus_stop_model.dart';
 
-class MapScreen extends StatelessWidget {
+class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
+
+  @override
+  State<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends State<MapScreen> {
+  LatLng _userLocation = const LatLng(23.7522, 90.3938);
+  LatLng _centerLatLng = const LatLng(23.7561, 90.3872);
+  bool _isGettingLocation = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRealLocation();
+  }
+
+  Future<void> _fetchRealLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() => _isGettingLocation = false);
+      return;
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        setState(() => _isGettingLocation = false);
+        return;
+      }
+    }
+    
+    if (permission == LocationPermission.deniedForever) {
+      setState(() => _isGettingLocation = false);
+      return;
+    }
+
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high
+    );
+
+    if (mounted) {
+      setState(() {
+        _userLocation = LatLng(position.latitude, position.longitude);
+        _centerLatLng = _userLocation;
+        _isGettingLocation = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,9 +70,6 @@ class MapScreen extends StatelessWidget {
     final settingsProvider = Provider.of<SettingsProvider>(context); 
     
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
-    final centerLatLng = const LatLng(23.7561, 90.3872); 
-    final userLocation = const LatLng(23.7522, 90.3938);
 
     final baseTileLayer = TileLayer(
       urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
@@ -33,14 +83,14 @@ class MapScreen extends StatelessWidget {
         backgroundColor: Theme.of(context).colorScheme.primary,
         elevation: 0,
       ),
-      body: provider.isLoading
+      body: provider.isLoading || _isGettingLocation
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
                 FlutterMap(
                   options: MapOptions(
-                    initialCenter: centerLatLng,
-                    initialZoom: 13.0,
+                    initialCenter: _centerLatLng,
+                    initialZoom: 14.0,
                     onTap: (_, __) => provider.clearStopSelection(),
                   ),
                   children: [
@@ -72,7 +122,7 @@ class MapScreen extends StatelessWidget {
                       markers: [
                         if (settingsProvider.locationAccess)
                           Marker(
-                            point: userLocation,
+                            point: _userLocation, 
                             width: 45,
                             height: 45,
                             child: Container(
@@ -221,6 +271,8 @@ class MapScreen extends StatelessWidget {
                         itemBuilder: (context, index) {
                           final bus = buses[index];
                           final companyName = langProvider.isBangla ? bus.companyBn : bus.company;
+                          final actualEta = provider.getDynamicEta(bus, stop); 
+
                           return ListTile(
                             leading: Container(
                               padding: const EdgeInsets.all(8),
@@ -239,7 +291,7 @@ class MapScreen extends StatelessWidget {
                               style: TextStyle(color: bus.isLive ? Colors.green : Colors.grey),
                             ),
                             trailing: Text(
-                              '${bus.etaMinutes} min', 
+                              '$actualEta min', 
                               style: const TextStyle(fontSize: 18, color: Colors.orange, fontWeight: FontWeight.bold),
                             ),
                             onTap: () {
