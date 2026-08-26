@@ -1,9 +1,15 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:http/http.dart' as http;
 import '../models/bus_stop_model.dart';
 import '../models/bus_model.dart';
 
 class TransitProvider extends ChangeNotifier {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
@@ -19,59 +25,177 @@ class TransitProvider extends ChangeNotifier {
   List<Bus> _buses = [];
   List<Bus> get buses => _buses;
 
+  final Map<String, List<LatLng>> _busDetailedRoutes = {};
+
+  StreamSubscription<QuerySnapshot>? _stopsSubscription;
+  StreamSubscription<QuerySnapshot>? _busesSubscription;
+  Timer? _simulationTimer;
+
+  final Map<String, int> _busTargetIndex = {};
+  final Map<String, double> _busStepFraction = {};
+
   TransitProvider() {
-    fetchTransitData();
+    initLiveTransitStream();
   }
 
-  Future<void> fetchTransitData() async {
+  @override
+  void dispose() {
+    _stopsSubscription?.cancel();
+    _busesSubscription?.cancel();
+    _simulationTimer?.cancel();
+    super.dispose();
+  }
+
+  void initLiveTransitStream() {
     _isLoading = true;
     notifyListeners();
 
-    try {
-      final firestore = FirebaseFirestore.instance;
+    _stopsSubscription = _firestore.collection('bus_stops').snapshots().listen(
+      (snapshot) {
+        _stops = snapshot.docs.map((doc) {
+          final data = doc.data();
+          return BusStop(
+            id: doc.id,
+            nameEn: data['nameEn'] ?? 'Unknown',
+            nameBn: data['nameBn'] ?? 'অজানা',
+            lat: (data['lat'] as num?)?.toDouble() ?? 0.0,
+            lng: (data['lng'] as num?)?.toDouble() ?? 0.0,
+          );
+        }).toList();
 
-      // 1. Fetch Stops
-      final stopsSnap = await firestore.collection('bus_stops').get();
-      _stops = stopsSnap.docs.map((doc) {
-        final data = doc.data();
-        return BusStop(
-          id: doc.id,
-          nameEn: data['nameEn'] ?? 'Unknown',
-          nameBn: data['nameBn'] ?? 'অজানা',
-          lat: (data['lat'] as num?)?.toDouble() ?? 0.0,
-          lng: (data['lng'] as num?)?.toDouble() ?? 0.0,
-        );
-      }).toList();
+        _isLoading = false;
+        notifyListeners();
+      },
+    );
 
-      // 2. Fetch Buses
-      final busesSnap = await firestore.collection('buses').get();
-      _buses = busesSnap.docs.map((doc) {
-        final data = doc.data();
-        return Bus(
-          busId: doc.id,
-          company: data['company'] ?? '',
-          companyBn: data['companyBn'] ?? '',
-          routeTag: data['routeTag'] ?? '',
-          routeName: data['routeName'] ?? '',
-          licensePlate: data['licensePlate'] ?? '',
-          standardFare: (data['standardFare'] as num?)?.toDouble() ?? 0.0,
-          studentFare: (data['studentFare'] as num?)?.toDouble() ?? 0.0,
-          nextStopId: data['nextStopId'] ?? '',
-          etaMinutes: data['etaMinutes'] ?? 0,
-          isLive: data['isLive'] ?? false,
-          currentLat: (data['currentLat'] as num?)?.toDouble() ?? 0.0,
-          currentLng: (data['currentLng'] as num?)?.toDouble() ?? 0.0,
-          stopIds: List<String>.from(data['stopIds'] ?? []),
-        );
-      }).toList();
+    _busesSubscription = _firestore.collection('buses').snapshots().listen(
+      (snapshot) {
+        _buses = snapshot.docs.map((doc) {
+          final data = doc.data();
+          return Bus(
+            busId: doc.id,
+            company: data['company'] ?? '',
+            companyBn: data['companyBn'] ?? '',
+            routeTag: data['routeTag'] ?? '',
+            routeName: data['routeName'] ?? '',
+            licensePlate: data['licensePlate'] ?? '',
+            standardFare: (data['standardFare'] as num?)?.toDouble() ?? 0.0,
+            studentFare: (data['studentFare'] as num?)?.toDouble() ?? 0.0,
+            nextStopId: data['nextStopId'] ?? '',
+            etaMinutes: data['etaMinutes'] ?? 0,
+            isLive: data['isLive'] ?? false,
+            currentLat: (data['currentLat'] as num?)?.toDouble() ?? 0.0,
+            currentLng: (data['currentLng'] as num?)?.toDouble() ?? 0.0,
+            stopIds: List<String>.from(data['stopIds'] ?? []),
+          );
+        }).toList();
 
-      debugPrint('✅ Loaded ${_stops.length} stops and ${_buses.length} buses from Firestore!');
-    } catch (e) {
-      debugPrint('❌ Error loading transit data: $e');
+        _fetchDetailedRoutesFromOSRM().then((_) {
+          _startBusSimulation();
+        });
+        
+        notifyListeners();
+      },
+    );
+  }
+
+  Future<void> _fetchDetailedRoutesFromOSRM() async {
+    for (var bus in _buses) {
+      if (!bus.isLive || bus.stopIds.length < 2) continue;
+      if (_busDetailedRoutes.containsKey(bus.busId)) continue;
+
+      try {
+        final routeCoords = bus.stopIds
+            .map((id) => _stops.firstWhere((s) => s.id == id, orElse: () => BusStop(id: '', nameEn: '', nameBn: '', lat: 0, lng: 0)))
+            .where((s) => s.lat != 0 && s.lng != 0)
+            .toList();
+
+        if (routeCoords.length < 2) continue;
+
+        final coordinateString = routeCoords.map((c) => '${c.lng},${c.lat}').join(';');
+        
+        final url = Uri.parse('http://router.project-osrm.org/route/v1/driving/$coordinateString?geometries=geojson&overview=full');
+        final response = await http.get(url);
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          final List coordinates = data['routes'][0]['geometry']['coordinates'];
+          
+          _busDetailedRoutes[bus.busId] = coordinates
+              .map((c) => LatLng(c[1] as double, c[0] as double))
+              .toList();
+        }
+      } catch (e) {
+        debugPrint('OSRM Routing Error: $e');
+      }
     }
-
-    _isLoading = false;
     notifyListeners();
+  }
+
+  void _startBusSimulation() {
+    _simulationTimer?.cancel();
+
+    _simulationTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
+      if (_stops.isEmpty || _buses.isEmpty) return;
+
+      bool hasMoved = false;
+
+      for (int i = 0; i < _buses.length; i++) {
+        final bus = _buses[i];
+        if (!bus.isLive) continue;
+
+        final detailedCoords = _busDetailedRoutes[bus.busId];
+        
+        if (detailedCoords == null || detailedCoords.length < 2) continue;
+
+        int targetIdx = _busTargetIndex[bus.busId] ?? 1;
+        if (targetIdx >= detailedCoords.length) targetIdx = 1;
+
+        int fromIdx = targetIdx - 1;
+        final fromPoint = detailedCoords[fromIdx];
+        final toPoint = detailedCoords[targetIdx];
+
+        double fraction = (_busStepFraction[bus.busId] ?? 0.0) + 0.3;
+
+        if (fraction >= 1.0) {
+          fraction = 0.0;
+          targetIdx = (targetIdx + 1) % detailedCoords.length;
+          _busTargetIndex[bus.busId] = targetIdx;
+        }
+        _busStepFraction[bus.busId] = fraction;
+
+        final newLat = fromPoint.latitude + (toPoint.latitude - fromPoint.latitude) * fraction;
+        final newLng = fromPoint.longitude + (toPoint.longitude - fromPoint.longitude) * fraction;
+
+        final updatedBus = Bus(
+          busId: bus.busId,
+          company: bus.company,
+          companyBn: bus.companyBn,
+          routeTag: bus.routeTag,
+          routeName: bus.routeName,
+          licensePlate: bus.licensePlate,
+          standardFare: bus.standardFare,
+          studentFare: bus.studentFare,
+          nextStopId: bus.nextStopId, 
+          etaMinutes: bus.etaMinutes, 
+          isLive: bus.isLive,
+          currentLat: newLat,
+          currentLng: newLng,
+          stopIds: bus.stopIds,
+        );
+
+        _buses[i] = updatedBus;
+
+        if (_selectedBus?.busId == updatedBus.busId) {
+          _selectedBus = updatedBus;
+        }
+        hasMoved = true;
+      }
+
+      if (hasMoved) {
+        notifyListeners();
+      }
+    });
   }
 
   void selectStop(BusStop stop) {
@@ -81,10 +205,11 @@ class TransitProvider extends ChangeNotifier {
 
   void clearStopSelection() {
     _selectedStop = null;
+    _selectedBus = null;
     notifyListeners();
   }
 
-  void selectBus(Bus bus) {
+  void selectBus(Bus? bus) {
     _selectedBus = bus;
     notifyListeners();
   }
@@ -92,5 +217,22 @@ class TransitProvider extends ChangeNotifier {
   List<Bus> getBusesForSelectedStop() {
     if (_selectedStop == null) return [];
     return _buses.where((bus) => bus.stopIds.contains(_selectedStop!.id)).toList();
+  }
+
+  List<LatLng> getSelectedRouteCoordinates() {
+    if (_selectedBus == null) return [];
+
+    if (_busDetailedRoutes.containsKey(_selectedBus!.busId)) {
+      return _busDetailedRoutes[_selectedBus!.busId]!;
+    }
+
+    final List<LatLng> points = [];
+    for (String stopId in _selectedBus!.stopIds) {
+      final match = _stops.where((s) => s.id == stopId);
+      if (match.isNotEmpty) {
+        points.add(LatLng(match.first.lat, match.first.lng));
+      }
+    }
+    return points;
   }
 }

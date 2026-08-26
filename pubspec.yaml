@@ -43,7 +43,7 @@ dependencies:
   latlong2: ^0.9.1
 
   # API Calls (Gemini API & Backend)
-  http: ^1.2.1
+  http: ^1.6.0
   firebase_core: ^4.7.0
   cloud_firestore: ^6.3.0
 
