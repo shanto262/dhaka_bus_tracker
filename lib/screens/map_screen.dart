@@ -72,8 +72,7 @@ class _MapScreenState extends State<MapScreen> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     final baseTileLayer = TileLayer(
-      urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-      subdomains: const ['a', 'b', 'c', 'd'],
+      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       userAgentPackageName: 'com.example.dhaka_bus_tracker',
     );
 
