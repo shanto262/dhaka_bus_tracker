@@ -1,9 +1,9 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import '../providers/language_provider.dart';
 
 class ComplaintScreen extends StatefulWidget {
@@ -24,7 +24,7 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
 
   final List<String> _companies = ['Bikash Paribahan', 'Uttara Express', 'BRTC City Service'];
 
-  // New Variables for Image and Loading State
+  // Variables for Image and Loading State
   File? _selectedImage;
   bool _isSubmitting = false;
   final ImagePicker _picker = ImagePicker();
@@ -36,11 +36,13 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
     super.dispose();
   }
 
-  // Pick an image from the camera
+  // Pick an image and aggressively compress it for Base64 storage
   Future<void> _pickImage() async {
     final XFile? pickedFile = await _picker.pickImage(
-      source: ImageSource.camera, // Change to ImageSource.gallery if you prefer
-      imageQuality: 70, // Compresses the image slightly for faster uploads
+      source: ImageSource.camera, 
+      imageQuality: 30, // Drop quality to 30% to save space
+      maxWidth: 600,    // Force a max width
+      maxHeight: 600,   // Force a max height
     );
     
     if (pickedFile != null) {
@@ -60,25 +62,25 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
     });
 
     try {
-      String? imageUrl;
+      String? base64Image;
 
-      // 1. Upload the image to Firebase Storage if one was selected
       if (_selectedImage != null) {
-        final storageRef = FirebaseStorage.instance
-            .ref()
-            .child('complaints/${DateTime.now().millisecondsSinceEpoch}.jpg');
-            
-        final uploadTask = await storageRef.putFile(_selectedImage!);
-        imageUrl = await uploadTask.ref.getDownloadURL();
+        List<int> imageBytes = await _selectedImage!.readAsBytes();
+        base64Image = base64Encode(imageBytes); 
+        
+        // Safety check: Firestore limit is ~1MB (1,048,576 bytes)
+        if (base64Image.length > 950000) {
+           throw Exception('Photo is still too large for the database. Please try a different photo without zooming in.');
+        }
       }
 
-      // 2. Save everything to Firestore Database
+      // Save everything directly to your existing Firestore Database
       await FirebaseFirestore.instance.collection('complaints').add({
         'company_name': _selectedCompany,
         'bus_id': _busIdController.text.trim(),
         'complaint_type': _selectedComplaintType,
         'details': _detailsController.text.trim(),
-        'photo_url': imageUrl, // Will be null if no photo was attached
+        'photo_base64': base64Image, 
         'timestamp': FieldValue.serverTimestamp(),
         'status': 'pending',
       });
@@ -87,7 +89,7 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
         _isSubmitting = false;
       });
 
-      // 3. Show Success Dialog
+      // Show Success Dialog
       if (!mounted) return;
       showDialog(
         context: context,
@@ -240,7 +242,6 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
           const SizedBox(height: 8),
           TextFormField(
             controller: _busIdController,
-            onChanged: (value) => setState(() {}), 
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
                 return langProvider.t('Please enter the Bus ID');
@@ -337,8 +338,6 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          
-          // Updated Photo Row
           Row(
             children: [
               OutlinedButton.icon(
@@ -348,12 +347,10 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
               ),
               if (_selectedImage != null) ...[
                 const SizedBox(width: 16),
-                // Show a small thumbnail of the selected image
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.file(_selectedImage!, width: 50, height: 50, fit: BoxFit.cover),
                 ),
-                // Button to remove the image
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.red, size: 20),
                   onPressed: () {
@@ -365,7 +362,6 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
               ]
             ],
           ),
-          
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(16),
@@ -442,7 +438,6 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            // Disable the button if currently submitting to prevent duplicate uploads
             onPressed: _isSubmitting ? null : () => _submitComplaint(langProvider),
             icon: _isSubmitting 
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
