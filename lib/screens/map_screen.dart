@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
-
+import 'package:geolocator/geolocator.dart';
 import '../providers/transit_provider.dart';
 import '../providers/language_provider.dart';
 import '../providers/settings_provider.dart';
@@ -31,8 +31,67 @@ class _MapScreenState extends State<MapScreen> {
   List<Bus> _matchingBuses = [];
 
   // ============================================================
-  // BUILD
+  // LOCATION STATE
   // ============================================================
+
+  LatLng _userLocation = const LatLng(23.7522, 90.3938);
+  LatLng _centerLatLng = const LatLng(23.7561, 90.3872);
+  bool _isGettingLocation = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRealLocation();
+  }
+
+  Future<void> _fetchRealLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) {
+        setState(() => _isGettingLocation = false);
+      }
+      return;
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        if (mounted) {
+          setState(() => _isGettingLocation = false);
+        }
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        setState(() => _isGettingLocation = false);
+      }
+      return;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      if (mounted) {
+        setState(() {
+          _userLocation = LatLng(position.latitude, position.longitude);
+          _centerLatLng = _userLocation;
+          _isGettingLocation = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isGettingLocation = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,13 +103,8 @@ class _MapScreenState extends State<MapScreen> {
     final isDarkMode =
         Theme.of(context).brightness == Brightness.dark;
 
-    const centerLatLng = LatLng(23.7561, 90.3872);
-    const userLocation = LatLng(23.7522, 90.3938);
-
     final baseTileLayer = TileLayer(
-      urlTemplate:
-          'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-      subdomains: const ['a', 'b', 'c', 'd'],
+      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       userAgentPackageName: 'com.example.dhaka_bus_tracker',
     );
 
@@ -89,12 +143,11 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
-
       // ==========================================================
       // BODY
       // ==========================================================
 
-      body: provider.isLoading
+      body: provider.isLoading || _isGettingLocation
           ? const Center(
               child: CircularProgressIndicator(),
             )
@@ -107,8 +160,8 @@ class _MapScreenState extends State<MapScreen> {
 
                 FlutterMap(
                   options: MapOptions(
-                    initialCenter: centerLatLng,
-                    initialZoom: 13.0,
+                    initialCenter: _centerLatLng,
+                    initialZoom: 14.0,
                     onTap: (_, __) {
                       provider.clearStopSelection();
                     },
@@ -161,7 +214,7 @@ class _MapScreenState extends State<MapScreen> {
                         // USER LOCATION
                         if (settingsProvider.locationAccess)
                           Marker(
-                            point: userLocation,
+                            point: _userLocation, 
                             width: 45,
                             height: 45,
                             child: Container(
@@ -1209,18 +1262,13 @@ class _MapScreenState extends State<MapScreen> {
                         ),
                       )
                     : ListView.builder(
-                        itemCount:
-                            buses.length,
-                        itemBuilder:
-                            (context, index) {
-
-                          final bus =
-                              buses[index];
-
-                          final companyName =
-                              langProvider.isBangla
-                                  ? bus.companyBn
-                                  : bus.company;
+                        itemCount: buses.length,
+                        itemBuilder: (context, index) {
+                          final bus = buses[index];
+                          final companyName = langProvider.isBangla
+                              ? bus.companyBn
+                              : bus.company;
+                          final actualEta = provider.getDynamicEta(bus, stop);
 
                           return ListTile(
                             leading:
@@ -1277,15 +1325,11 @@ class _MapScreenState extends State<MapScreen> {
                             ),
 
                             trailing: Text(
-                              '${bus.etaMinutes} min',
-                              style:
-                                  const TextStyle(
+                              '$actualEta min',
+                              style: const TextStyle(
                                 fontSize: 18,
-                                color:
-                                    Colors.orange,
-                                fontWeight:
-                                    FontWeight
-                                        .bold,
+                                color: Colors.orange,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
 

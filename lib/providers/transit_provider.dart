@@ -235,4 +235,19 @@ class TransitProvider extends ChangeNotifier {
     }
     return points;
   }
+
+  int getDynamicEta(Bus bus, BusStop targetStop) {
+    if (!bus.isLive) return bus.etaMinutes;
+
+    const distance = Distance();
+    
+    final meters = distance(
+      LatLng(bus.currentLat, bus.currentLng),
+      LatLng(targetStop.lat, targetStop.lng),
+    );
+
+    int calculatedEta = (meters / 250).ceil();
+
+    return calculatedEta < 1 ? 1 : calculatedEta; 
+  }
 }
