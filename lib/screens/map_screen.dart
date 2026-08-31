@@ -20,44 +20,69 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   bool _showSmartPlan = false;
-  LatLng _userLocation = const LatLng(23.7522, 90.3938);
+  LatLng _userLocation = const LatLng(23.7522, 90.3938); // Fallback location (Kawran Bazar area)
   LatLng _centerLatLng = const LatLng(23.7561, 90.3872);
   bool _isGettingLocation = true;
+  bool _hasValidLocation = false; // Tracks whether permission was granted
 
-  // 1. Add the MapController and tracking variables
   final MapController _mapController = MapController();
   TransitProvider? _transitProvider;
   String? _lastTrackedBusId;
+
+  // AI Route Argument Variables
+  String? _targetBusName;
+  String? _targetOrigin;
+  String? _targetDestination;
+  bool _hasInitializedFromArgs = false;
 
   @override
   void initState() {
     super.initState();
     _fetchRealLocation();
     
-    // 2. Attach a listener to watch for bus selections after the map builds
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _transitProvider = Provider.of<TransitProvider>(context, listen: false);
       _transitProvider!.addListener(_onProviderUpdated);
     });
   }
 
-  // 3. This function runs every time the provider data changes
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_hasInitializedFromArgs) {
+      _hasInitializedFromArgs = true;
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      if (args != null) {
+        _targetBusName = args['busName'];
+        _targetOrigin = args['origin'];
+        _targetDestination = args['destination'];
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_targetBusName != null && _transitProvider != null) {
+            final matchingBus = _transitProvider!.buses.firstWhere(
+              (b) => _targetBusName!.contains(b.company) || _targetBusName!.contains(b.routeTag),
+              orElse: () => _transitProvider!.buses.first,
+            );
+            _transitProvider!.selectBus(matchingBus);
+          }
+        });
+      }
+    }
+  }
+
   void _onProviderUpdated() {
     final bus = _transitProvider!.selectedBus;
     
-    // If a new bus is selected, move the camera directly to it!
     if (bus != null && bus.busId != _lastTrackedBusId) {
       _lastTrackedBusId = bus.busId;
       _mapController.move(LatLng(bus.currentLat, bus.currentLng), 15.0); 
     } else if (bus == null) {
-      // Clear the tracker if the user closes the bus card
       _lastTrackedBusId = null;
     }
   }
 
   @override
   void dispose() {
-    // Always clean up listeners and controllers to prevent memory leaks!
     _transitProvider?.removeListener(_onProviderUpdated);
     _mapController.dispose();
     super.dispose();
@@ -69,7 +94,7 @@ class _MapScreenState extends State<MapScreen> {
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      if (mounted) setState(() => _isGettingLocation = false);
+      if (mounted) setState(() { _isGettingLocation = false; _hasValidLocation = false; });
       return;
     }
 
@@ -77,19 +102,27 @@ class _MapScreenState extends State<MapScreen> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        if (mounted) setState(() => _isGettingLocation = false);
+        if (mounted) setState(() { _isGettingLocation = false; _hasValidLocation = false; });
         return;
       }
     }
     
     if (permission == LocationPermission.deniedForever) {
-      if (mounted) setState(() => _isGettingLocation = false);
+      if (mounted) setState(() { _isGettingLocation = false; _hasValidLocation = false; });
       return;
+    }
+
+    // Permission is granted! Enable the marker.
+    if (mounted) {
+      setState(() {
+        _hasValidLocation = true;
+      });
     }
 
     try {
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 5),
       );
 
       if (mounted) {
@@ -98,12 +131,45 @@ class _MapScreenState extends State<MapScreen> {
           _centerLatLng = _userLocation;
           _isGettingLocation = false;
         });
-        // Optionally move the map to the user's location when found
         _mapController.move(_userLocation, 14.0);
       }
     } catch (_) {
-      if (mounted) setState(() => _isGettingLocation = false);
+      if (mounted) setState(() { _isGettingLocation = false; });
     }
+  }
+
+  // Helper method to extract coordinates strictly between Origin and Destination
+  List<LatLng> _getSubPathCoordinates(TransitProvider provider) {
+    final bus = provider.selectedBus;
+    if (bus == null || _targetOrigin == null || _targetDestination == null) return [];
+
+    List<LatLng> subPath = [];
+    bool isRecording = false;
+
+    for (String stopId in bus.stopIds) {
+      final stopMatch = provider.stops.where((s) => s.id == stopId);
+      if (stopMatch.isNotEmpty) {
+        final stop = stopMatch.first;
+        final stopNameEn = stop.nameEn.toLowerCase();
+        final stopNameBn = stop.nameBn;
+        final orig = _targetOrigin!.toLowerCase();
+        final dest = _targetDestination!.toLowerCase();
+
+        if (stopNameEn.contains(orig) || orig.contains(stopNameEn) || stopNameBn.contains(_targetOrigin!)) {
+          isRecording = true;
+        }
+
+        if (isRecording) {
+          subPath.add(LatLng(stop.lat, stop.lng));
+        }
+
+        if (stopNameEn.contains(dest) || dest.contains(stopNameEn) || stopNameBn.contains(_targetDestination!)) {
+          isRecording = false;
+          break;
+        }
+      }
+    }
+    return subPath.isNotEmpty ? subPath : provider.getSelectedRouteCoordinates();
   }
 
   @override
@@ -146,7 +212,6 @@ class _MapScreenState extends State<MapScreen> {
           : Stack(
               children: [
                 FlutterMap(
-                  // 4. Attach the MapController to the FlutterMap
                   mapController: _mapController,
                   options: MapOptions(
                     initialCenter: _centerLatLng,
@@ -168,19 +233,29 @@ class _MapScreenState extends State<MapScreen> {
 
                     PolylineLayer<Object>(
                       polylines: [
+                        // 1. Full bus route context polyline (Lighter/Dotted)
                         if (provider.selectedBus != null)
                           Polyline<Object>(
                             points: provider.getSelectedRouteCoordinates(),
-                            color: Colors.blueAccent.withOpacity(0.7),
-                            strokeWidth: 4.5,
+                            color: Colors.blueAccent.withOpacity(0.35),
+                            strokeWidth: 4.0,
                             pattern: const StrokePattern.dotted(),
+                          ),
+                        
+                        // 2. Deep highlighted sub-path strictly between Origin and Destination
+                        if (provider.selectedBus != null && _targetOrigin != null && _targetDestination != null)
+                          Polyline<Object>(
+                            points: _getSubPathCoordinates(provider),
+                            color: Colors.deepOrange,
+                            strokeWidth: 6.5,
                           ),
                       ],
                     ),
 
                     MarkerLayer(
                       markers: [
-                        if (settingsProvider.locationAccess)
+                        // Show marker if settings allow AND permission/location was successfully allowed
+                        if (settingsProvider.locationAccess && _hasValidLocation)
                           Marker(
                             point: _userLocation, 
                             width: 45,

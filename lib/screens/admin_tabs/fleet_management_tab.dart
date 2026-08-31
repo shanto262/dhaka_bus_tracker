@@ -2,172 +2,194 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/admin_provider.dart';
 
-class FleetManagementTab extends StatelessWidget {
+class FleetManagementTab extends StatefulWidget {
   const FleetManagementTab({super.key});
 
-  // Helper function to find a staff member's name by their ID
-  String _getStaffName(String staffId, List<Map<String, dynamic>> staffList) {
-    final staff = staffList.firstWhere(
-      (s) => s['id'] == staffId,
-      orElse: () => {'name': 'Unassigned'},
-    );
-    return staff['name'];
-  }
+  @override
+  State<FleetManagementTab> createState() => _FleetManagementTabState();
+}
+
+class _FleetManagementTabState extends State<FleetManagementTab> {
+  String _staffFilter = 'All'; 
 
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<AdminProvider>(context);
     final buses = provider.buses;
-    final staffList = provider.staff;
-
-    if (buses.isEmpty) {
-      return const Center(
-        child: Text('No buses found for this company.', style: TextStyle(fontSize: 18, color: Colors.grey)),
-      );
-    }
+    
+    // Filter and sort staff (highest strikes first)
+    List<Map<String, dynamic>> staffList = provider.staff.where((s) {
+      if (_staffFilter == 'All') return true;
+      return s['role'].toString().toLowerCase() == _staffFilter.toLowerCase();
+    }).toList();
+    
+    staffList.sort((a, b) {
+      int countA = a['complaintsCount'] ?? 0;
+      int countB = b['complaintsCount'] ?? 0;
+      return countB.compareTo(countA); // Descending
+    });
 
     return Padding(
       padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Fleet & Shift Roster',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Manage active buses and staff assignments.',
-            style: TextStyle(color: Colors.grey.shade600),
-          ),
-          const SizedBox(height: 24),
-          Expanded(
-            child: GridView.builder(
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 400, // Adapts nicely to desktop/tablet screens
-                mainAxisExtent: 320,
-                crossAxisSpacing: 24,
-                mainAxisSpacing: 24,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Check if we have enough space for side-by-side (Desktop/Web)
+          bool isWideScreen = constraints.maxWidth > 900;
+
+          List<Widget> panels = [
+            // LEFT PANEL: Active Fleet
+            Expanded(
+              flex: isWideScreen ? 1 : 0, 
+              child: SizedBox(
+                // Give it a fixed height when stacked vertically, otherwise let it expand
+                height: isWideScreen ? null : 350, 
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.directions_bus, size: 28),
+                        const SizedBox(width: 8),
+                        Text('Active Fleet (${buses.length})', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: buses.length,
+                        itemBuilder: (context, index) {
+                          final bus = buses[index];
+                          return Card(
+                            elevation: 2,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                                child: Icon(Icons.directions_bus, color: Theme.of(context).colorScheme.primary),
+                              ),
+                              title: Text(bus['routeTag'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                              subtitle: Text(bus['licensePlate'] ?? ''),
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12)
+                                ),
+                                child: const Text('ON ROUTE', style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              itemCount: buses.length,
-              itemBuilder: (context, index) {
-                final bus = buses[index];
-                return _buildBusCard(context, bus, staffList);
-              },
             ),
-          ),
-        ],
-      ),
-    );
-  }
+            
+            // Add spacing between the panels based on layout
+            SizedBox(width: isWideScreen ? 24 : 0, height: isWideScreen ? 0 : 24),
+            
+            // RIGHT PANEL: Staff Directory & Strikes
+            Expanded(
+              flex: isWideScreen ? 2 : 1, // Takes 2/3 width on wide screens, 100% height when stacked
+              child: Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // FIX: Changed this from a Row to a Wrap so it won't overflow
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 16,
+                        runSpacing: 16,
+                        children: [
+                          const Text('Staff Directory & Performance', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                          SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(value: 'All', label: Text('All')),
+                              ButtonSegment(value: 'Driver', label: Text('Drivers')),
+                              ButtonSegment(value: 'Conductor', label: Text('Conductors')),
+                            ],
+                            selected: {_staffFilter},
+                            onSelectionChanged: (Set<String> newSelection) {
+                              setState(() => _staffFilter = newSelection.first);
+                            },
+                          )
+                        ],
+                      ),
+                      const Divider(height: 32),
+                      
+                      Expanded(
+                        child: staffList.isEmpty
+                            ? const Center(child: Text('No staff members found.'))
+                            : ListView.separated(
+                                itemCount: staffList.length,
+                                separatorBuilder: (context, index) => const Divider(),
+                                itemBuilder: (context, index) {
+                                  final staff = staffList[index];
+                                  final role = staff['role'].toString().toUpperCase();
+                                  final strikes = staff['complaintsCount'] ?? 0;
+                                  final isDriver = role == 'DRIVER';
 
-  Widget _buildBusCard(BuildContext context, Map<String, dynamic> bus, List<Map<String, dynamic>> staffList) {
-    // Safely extract shift data, falling back to empty maps if not present
-    final shifts = bus['shifts'] as Map<String, dynamic>? ?? {};
-    final morning = shifts['morning'] as Map<String, dynamic>? ?? {};
-    final evening = shifts['evening'] as Map<String, dynamic>? ?? {};
-
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header: License Plate & Route Tag
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    bus['licensePlate'] ?? 'Unknown Plate',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis,
+                                  return ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor: isDriver ? Colors.blue.withOpacity(0.1) : Colors.purple.withOpacity(0.1),
+                                      child: Icon(
+                                        isDriver ? Icons.engineering : Icons.receipt_long,
+                                        color: isDriver ? Colors.blue : Colors.purple,
+                                      ),
+                                    ),
+                                    title: Text(staff['name'] ?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    subtitle: Text('ID: ${staff['id'].toString().substring(0, 8)} • Phone: ${staff['phone']}'),
+                                    trailing: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: strikes > 0 ? Colors.red.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(color: strikes > 0 ? Colors.red : Colors.transparent)
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            strikes > 0 ? Icons.warning_rounded : Icons.check_circle, 
+                                            color: strikes > 0 ? Colors.red : Colors.grey, 
+                                            size: 16
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            '$strikes Strikes', 
+                                            style: TextStyle(
+                                              color: strikes > 0 ? Colors.red : Colors.grey.shade700, 
+                                              fontWeight: FontWeight.bold
+                                            )
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    bus['routeTag'] ?? 'N/A',
-                    style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
+              ),
             ),
-            const Divider(height: 24),
-            
-            // Morning Shift
-            _buildShiftRow(
-              context: context,
-              shiftName: 'Morning Shift',
-              time: '06:00 - 14:00',
-              driverId: morning['driverId'],
-              conductorId: morning['conductorId'],
-              staffList: staffList,
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Evening Shift
-            _buildShiftRow(
-              context: context,
-              shiftName: 'Evening Shift',
-              time: '14:00 - 22:00',
-              driverId: evening['driverId'],
-              conductorId: evening['conductorId'],
-              staffList: staffList,
-            ),
-          ],
-        ),
+          ];
+
+          // Return a Row for Web/Desktop, or a Column for Mobile/Narrow Windows
+          return isWideScreen 
+              ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: panels) 
+              : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: panels);
+        },
       ),
-    );
-  }
-
-  Widget _buildShiftRow({
-    required BuildContext context,
-    required String shiftName,
-    required String time,
-    required String? driverId,
-    required String? conductorId,
-    required List<Map<String, dynamic>> staffList,
-  }) {
-    final driverName = driverId != null ? _getStaffName(driverId, staffList) : 'Unassigned';
-    final conductorName = conductorId != null ? _getStaffName(conductorId, staffList) : 'Unassigned';
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(shiftName.contains('Morning') ? Icons.wb_sunny : Icons.nightlight_round, size: 16, color: Colors.orange),
-            const SizedBox(width: 8),
-            Text(shiftName, style: const TextStyle(fontWeight: FontWeight.bold)),
-            const Spacer(),
-            Text(time, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            const Icon(Icons.engineering, size: 14, color: Colors.grey),
-            const SizedBox(width: 4),
-            Text('Driver: $driverName', style: const TextStyle(fontSize: 13)),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            const Icon(Icons.receipt_long, size: 14, color: Colors.grey),
-            const SizedBox(width: 4),
-            Text('Conductor: $conductorName', style: const TextStyle(fontSize: 13)),
-          ],
-        ),
-      ],
     );
   }
 }

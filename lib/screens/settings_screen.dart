@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/language_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/transit_provider.dart';
 import 'generic_info_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -23,6 +24,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // Clear Cache Action
   void _handleClearCache(LanguageProvider langProvider) {
+    final transitProvider = Provider.of<TransitProvider>(context, listen: false);
+    
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -39,6 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
               onPressed: () {
                 Navigator.pop(context);
+                transitProvider.clearStopSelection();
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Cache cleared successfully!'), backgroundColor: Colors.green),
                 );
@@ -55,7 +59,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final langProvider = Provider.of<LanguageProvider>(context);
     final themeProvider = Provider.of<ThemeProvider>(context);
-    final settingsProvider = Provider.of<SettingsProvider>(context); // Get the new provider
+    final settingsProvider = Provider.of<SettingsProvider>(context);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -88,21 +92,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
         children: [
-          _buildSectionTitle(langProvider.t('NOTIFICATIONS')),
-          _buildCard([
-            _buildSwitchTile(
-              langProvider.t('Bus Arrival Alerts'), langProvider.t('Push alerts for nearby buses'), Icons.notifications_active, 
-              settingsProvider.busArrivalAlerts,
-              (val) => settingsProvider.toggleBusArrivalAlerts(val),
-            ),
-            const Divider(height: 1, indent: 56),
-            _buildSwitchTile(
-              langProvider.t('Live Map Refresh'), langProvider.t('Auto-update every 30 seconds'), Icons.autorenew, 
-              settingsProvider.liveMapRefresh,
-              (val) => settingsProvider.toggleLiveMapRefresh(val),
-            ),
-          ]),
-
           _buildSectionTitle(langProvider.t('PREFERENCES')),
           _buildCard([
             _buildSwitchTile(
@@ -132,21 +121,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]), 
 
-          _buildSectionTitle(langProvider.t('SAVED & FAVOURITES')),
-          _buildCard([
-            _buildNavTile(langProvider.t('Favourite Stops'), Icons.star_border, subtitle: 'Farmgate, Shahbagh', trailingText: '2', 
-              onTap: () => _navigateTo(langProvider.t('Favourite Stops'))),
-            const Divider(height: 1, indent: 56),
-            _buildNavTile(langProvider.t('Saved Routes'), Icons.favorite_border, subtitle: 'Farmgate ➔ Uttara', trailingText: '1', 
-              onTap: () => _navigateTo(langProvider.t('Saved Routes'))),
-          ]),
-
           _buildSectionTitle(langProvider.t('SUPPORT & INFO')),
           _buildCard([
             _buildNavTile(langProvider.t('Help Center'), Icons.help_outline, subtitle: langProvider.t('FAQs and usage guides'), 
               onTap: () => _navigateTo(langProvider.t('Help Center'))),
             const Divider(height: 1, indent: 56),
-            _buildNavTile(langProvider.t('Contact Us'), Icons.mail_outline, subtitle: 'support@dhakabustracker.com', 
+            _buildNavTile(langProvider.t('Contact Us'), Icons.mail_outline, subtitle: 'support@brta.gov.bd', 
               onTap: () => _navigateTo(langProvider.t('Contact Us'))),
             const Divider(height: 1, indent: 56),
             _buildNavTile(langProvider.t('Privacy Policy'), Icons.privacy_tip_outlined, 
@@ -160,7 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildCard([
             _buildInfoTile(langProvider.t('Version'), '2.4.1'),
             const Divider(height: 1, indent: 16),
-            _buildInfoTile(langProvider.t('Data Source'), 'BRTC Open API'),
+            _buildInfoTile(langProvider.t('Data Source'), 'BRTA Open API'),
             const Divider(height: 1, indent: 16),
             _buildInfoTile(langProvider.t('Last Sync'), langProvider.t('Just now')),
             const Divider(height: 1, indent: 16),
@@ -249,7 +229,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Icon(Icons.chevron_right, color: Colors.grey),
         ],
       ),
-      onTap: onTap, // Assigned the onTap parameter
+      onTap: onTap,
     );
   }
 
@@ -280,7 +260,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 12),
         Text(langProvider.t('Dhaka Bus Tracker'), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         const SizedBox(height: 4),
-        Text(langProvider.t('Built for Dhaka · BRTC Approved'), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        Text(langProvider.t('Built for Dhaka · BRTA Approved'), style: const TextStyle(color: Colors.grey, fontSize: 12)),
       ],
     );
   }

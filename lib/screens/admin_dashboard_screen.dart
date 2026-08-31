@@ -19,13 +19,23 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final adminProvider = Provider.of<AdminProvider>(context);
+    
+    // Determine if the screen is wide enough for a side menu
+    final isDesktop = MediaQuery.of(context).size.width >= 800;
 
-    // Show a loading state while fetching the company profile
     if (adminProvider.isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
+    // The main content area
+    final Widget bodyContent = IndexedStack(
+      index: _selectedIndex,
+      children: const [
+        FleetManagementTab(),
+        FareMatrixTab(),
+        ComplaintsTab(),
+      ],
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -44,82 +54,50 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           ),
         ],
       ),
-      body: Row(
-        children: [
-          // ==========================================
-          // LEFT NAVIGATION RAIL
-          // ==========================================
-          NavigationRail(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (int index) {
-              setState(() {
-                _selectedIndex = index;
-              });
-            },
-            labelType: NavigationRailLabelType.all,
-            minExtendedWidth: 200,
-            selectedIconTheme: IconThemeData(
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            selectedLabelTextStyle: TextStyle(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.bold,
-            ),
-            destinations: const [
-              NavigationRailDestination(
-                icon: Icon(Icons.directions_bus_outlined),
-                selectedIcon: Icon(Icons.directions_bus),
-                label: Text('Fleet & Shifts'),
+      // If desktop, use a Row with NavigationRail. If mobile/narrow, just show the body.
+      body: isDesktop 
+        ? Row(
+            children: [
+              NavigationRail(
+                selectedIndex: _selectedIndex,
+                onDestinationSelected: (int index) => setState(() => _selectedIndex = index),
+                labelType: NavigationRailLabelType.all,
+                minExtendedWidth: 200,
+                selectedIconTheme: IconThemeData(color: Theme.of(context).colorScheme.primary),
+                selectedLabelTextStyle: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold),
+                destinations: const [
+                  NavigationRailDestination(
+                    icon: Icon(Icons.directions_bus_outlined),
+                    selectedIcon: Icon(Icons.directions_bus),
+                    label: Text('Fleet & Shifts'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.account_tree_outlined),
+                    selectedIcon: Icon(Icons.account_tree),
+                    label: Text('Fare Matrix'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.warning_amber_rounded),
+                    selectedIcon: Icon(Icons.warning_rounded),
+                    label: Text('Complaints'),
+                  ),
+                ],
               ),
-              NavigationRailDestination(
-                icon: Icon(Icons.account_tree_outlined),
-                selectedIcon: Icon(Icons.account_tree),
-                label: Text('Fare Matrix'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.warning_amber_rounded),
-                selectedIcon: Icon(Icons.warning_rounded),
-                label: Text('Complaints'),
-              ),
+              const VerticalDivider(thickness: 1, width: 1),
+              Expanded(child: bodyContent),
             ],
-          ),
-          
-          const VerticalDivider(thickness: 1, width: 1),
-          
-          // ==========================================
-          // MAIN CONTENT AREA
-          // ==========================================
-          Expanded(
-           child: IndexedStack(
-             index: _selectedIndex,
-             children: [
-             const FleetManagementTab(),
-             const FareMatrixTab(),
-             const ComplaintsTab(),
-              ],
-            ),
-         ),
-        ],
-      ),
-    );
-  }
-
-  // Temporary placeholder until we build the actual tab widgets
-  Widget _buildPlaceholder(String title) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.construction, size: 64, color: Colors.grey.shade400),
-          const SizedBox(height: 16),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey.shade600,
-            ),
-          ),
+          )
+        : bodyContent,
+        
+      // If mobile/narrow, show a BottomNavigationBar instead of the side rail
+      bottomNavigationBar: isDesktop ? null : BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (int index) => setState(() => _selectedIndex = index),
+        selectedItemColor: Theme.of(context).colorScheme.primary,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.directions_bus_outlined), activeIcon: Icon(Icons.directions_bus), label: 'Fleet'),
+          BottomNavigationBarItem(icon: Icon(Icons.account_tree_outlined), activeIcon: Icon(Icons.account_tree), label: 'Fares'),
+          BottomNavigationBarItem(icon: Icon(Icons.warning_amber_rounded), activeIcon: Icon(Icons.warning_rounded), label: 'Complaints'),
         ],
       ),
     );

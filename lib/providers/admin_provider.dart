@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -139,8 +140,11 @@ class AdminProvider extends ChangeNotifier {
   Future<void> updateFare(String routeId, String stopPairKey, double newStandardFare) async {
     if (_companyName == null) return;
 
-    // Rule: Student Fare is exactly half, rounded up if necessary.
+    // Calculate half fare, but enforce the 10 BDT absolute minimum
     double newStudentFare = (newStandardFare / 2).ceilToDouble(); 
+    if (newStudentFare < 10.0) {
+      newStudentFare = 10.0;
+    }
 
     try {
       await _firestore.collection('fare_matrices').doc(routeId).set({
@@ -154,6 +158,138 @@ class AdminProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error updating fare: $e');
     }
+  }
+
+  /// Auto-generates a complete fare matrix using geospatial distance.
+  Future<void> autoGenerateFareMatrix(String docId, List<String> stopNames) async {
+    try {
+      final stopsSnapshot = await _firestore.collection('bus_stops').get();
+      final Map<String, Map<String, double>> stopCoords = {};
+
+      for (var doc in stopsSnapshot.docs) {
+        final data = doc.data();
+        if (data['nameEn'] != null && data['lat'] != null && data['lng'] != null) {
+          stopCoords[data['nameEn']] = {'lat': data['lat'], 'lng': data['lng']};
+        }
+      }
+
+      double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+        var p = 0.017453292519943295; 
+        var a = 0.5 - cos((lat2 - lat1) * p) / 2 +
+            cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p)) / 2;
+        return 12742 * asin(sqrt(a)); 
+      }
+
+      Map<String, dynamic> newMatrix = {};
+      const double ratePerKm = 2.50; 
+      const double minFare = 10.0;
+
+      for (int i = 0; i < stopNames.length; i++) {
+        for (int j = i + 1; j < stopNames.length; j++) {
+          String origin = stopNames[i];
+          String destination = stopNames[j];
+          
+          final c1 = stopCoords[origin];
+          final c2 = stopCoords[destination];
+
+          if (c1 != null && c2 != null) {
+            double distanceKm = calculateDistance(c1['lat']!, c1['lng']!, c2['lat']!, c2['lng']!);
+            double rawFare = distanceKm * ratePerKm;
+            
+            // Round standard fare to nearest 5 BDT and enforce 10 BDT min
+            double standardFare = (rawFare / 5).round() * 5.0;
+            if (standardFare < minFare) standardFare = minFare;
+            
+            // Calculate student fare and enforce the same 10 BDT min
+            double studentFare = (standardFare / 2).ceilToDouble();
+            if (studentFare < 10.0) {
+              studentFare = 10.0;
+            }
+
+            newMatrix['${origin}_${destination}'] = {
+              'standard': standardFare,
+              'student': studentFare,
+            };
+          }
+        }
+      }
+
+      await _firestore.collection('fare_matrices').doc(docId).set({
+        'matrix': newMatrix
+      }, SetOptions(merge: true));
+
+    } catch (e) {
+      debugPrint('Error generating matrix: $e');
+    }
+  }
+
+// ============================================================
+  // SHIFT RESOLUTION & ATTRIBUTION LOGIC
+  // ============================================================
+
+  String _determineActiveShift(DateTime complaintTime, Map<String, dynamic> shifts) {
+    final double complaintHour = complaintTime.hour + (complaintTime.minute / 60.0);
+
+    for (var entry in shifts.entries) {
+      final shiftName = entry.key; 
+      final timeWindow = entry.value['timeWindow'] as String; 
+
+      final parts = timeWindow.split(' - ');
+      if (parts.length == 2) {
+        final startParts = parts[0].split(':');
+        final endParts = parts[1].split(':');
+
+        final startHour = int.parse(startParts[0]) + (int.parse(startParts[1]) / 60.0);
+        final endHour = int.parse(endParts[0]) + (int.parse(endParts[1]) / 60.0);
+
+        if (complaintHour >= startHour && complaintHour < endHour) {
+          return shiftName; 
+        }
+      }
+    }
+    return 'Unknown';
+  }
+
+  /// Evaluates a complaint and returns the exact staff on duty.
+  Map<String, dynamic>? getAttributionForComplaint(Map<String, dynamic> complaint) {
+    final busId = complaint['bus_id'];
+    if (busId == null) return null;
+
+    // 1. Find the matching bus (case-insensitive)
+    final bus = _buses.firstWhere(
+      (b) => b['routeTag']?.toString().toLowerCase() == busId.toString().toLowerCase(), 
+      orElse: () => {}
+    );
+    
+    if (bus.isEmpty || !bus.containsKey('shifts')) return null;
+
+    // 2. Safely parse the complaint timestamp
+    DateTime complaintTime;
+    if (complaint['timestamp'] is Timestamp) {
+      complaintTime = (complaint['timestamp'] as Timestamp).toDate();
+    } else {
+      complaintTime = DateTime.now(); // Fallback if still pending write
+    }
+
+    // 3. Determine the shift
+    String activeShift = _determineActiveShift(complaintTime, bus['shifts']);
+    if (activeShift == 'Unknown') return null;
+
+    // 4. Extract Staff IDs
+    String driverId = bus['shifts'][activeShift]['driverId'] ?? '';
+    String conductorId = bus['shifts'][activeShift]['conductorId'] ?? '';
+
+    // 5. Look up their real names in the staff list
+    final driver = _staff.firstWhere((s) => s['id'] == driverId, orElse: () => {'name': 'Unknown'});
+    final conductor = _staff.firstWhere((s) => s['id'] == conductorId, orElse: () => {'name': 'Unknown'});
+
+    return {
+      'shift': activeShift,
+      'driverId': driverId,
+      'driverName': driver['name'],
+      'conductorId': conductorId,
+      'conductorName': conductor['name'],
+    };
   }
 
   // ============================================================

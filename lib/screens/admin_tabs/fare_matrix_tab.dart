@@ -10,194 +10,265 @@ class FareMatrixTab extends StatefulWidget {
 }
 
 class _FareMatrixTabState extends State<FareMatrixTab> {
-  // Keeps track of any fares the admin edits before they hit publish
-  final Map<String, double> _editedFares = {};
-  bool _isPublishing = false;
+  String? _selectedOrigin;
+  String? _selectedDestination;
+  final TextEditingController _fareController = TextEditingController();
+  bool _isSaving = false;
 
-  void _publishChanges(AdminProvider provider, String routeId) async {
-    if (_editedFares.isEmpty) return;
+  @override
+  void dispose() {
+    _fareController.dispose();
+    super.dispose();
+  }
 
-    setState(() => _isPublishing = true);
-
-    // Loop through all edited cells and update Firestore
-    for (var entry in _editedFares.entries) {
-      await provider.updateFare(routeId, entry.key, entry.value);
+  Future<void> _handleSaveFare(AdminProvider provider, String docId) async {
+    if (_selectedOrigin == null || _selectedDestination == null) return;
+    if (_selectedOrigin == _selectedDestination) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Origin and Destination cannot be the same.')),
+      );
+      return;
     }
 
+    final fare = double.tryParse(_fareController.text);
+    if (fare == null || fare <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid fare amount.')),
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    // Create the exact pair key the database expects (e.g., "Mirpur 12_Science Lab")
+    final pairKey = '${_selectedOrigin}_${_selectedDestination}';
+    
+    await provider.updateFare(docId, pairKey, fare);
+
     setState(() {
-      _editedFares.clear();
-      _isPublishing = false;
+      _isSaving = false;
+      _selectedOrigin = null;
+      _selectedDestination = null;
+      _fareController.clear();
     });
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Fare chart successfully published to the live network!'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fare updated successfully! Student fare auto-calculated.'), backgroundColor: Colors.green),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<AdminProvider>(context);
-    final fareData = provider.fareMatrix;
+    final fareMatrixDoc = provider.fareMatrix;
 
-    if (fareData == null) {
+    if (fareMatrixDoc == null) {
       return const Center(
-        child: Text('No fare matrix configuration found.', style: TextStyle(fontSize: 18, color: Colors.grey)),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.account_tree_outlined, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Text('No fare matrix configuration found for this company.', style: TextStyle(color: Colors.grey, fontSize: 18)),
+          ],
+        ),
       );
     }
 
-    final String routeId = fareData['id'];
-    final List<String> stops = List<String>.from(fareData['stops'] ?? []);
-    final Map<String, dynamic> currentMatrix = fareData['matrix'] ?? {};
+    final docId = fareMatrixDoc['id'];
+    final List<String> stops = List<String>.from(fareMatrixDoc['stops'] ?? []);
+    final Map<String, dynamic> matrix = fareMatrixDoc['matrix'] ?? {};
 
     return Padding(
       padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Route Fare Matrix',
-                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Student fares are automatically calculated as exactly 50% of the standard fare.',
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                ],
-              ),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _editedFares.isEmpty ? Colors.grey : Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                ),
-                onPressed: _editedFares.isEmpty || _isPublishing
-                    ? null
-                    : () => _publishChanges(provider, routeId),
-                icon: _isPublishing
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Icon(Icons.cloud_upload),
-                label: Text(_isPublishing ? 'PUBLISHING...' : 'PUBLISH FARE CHART'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          
-          // ==========================================
-          // THE TRIANGULAR DATA GRID
-          // ==========================================
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              // Two ScrollViews allow scrolling horizontally and vertically if the route is very long
-              child: SingleChildScrollView(
-                scrollDirection: Axis.vertical,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
-                    columnSpacing: 24,
-                    columns: [
-                      const DataColumn(label: Text('Origin \\ Destination')),
-                      ...stops.map((stop) => DataColumn(label: Text(stop))),
-                    ],
-                    rows: List.generate(stops.length, (rowIndex) {
-                      final rowStop = stops[rowIndex];
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          bool isWideScreen = constraints.maxWidth > 900;
 
-                      return DataRow(
-                        cells: [
-                          // First cell in the row is the origin stop name
-                          DataCell(Text(rowStop, style: const TextStyle(fontWeight: FontWeight.bold))),
-                          
-                          // Generate cells for each destination column
-                          ...List.generate(stops.length, (colIndex) {
-                            final colStop = stops[colIndex];
-
-                            // Block out the diagonal (same stop) and bottom triangle
-                            if (colIndex <= rowIndex) {
-                              return DataCell(Container(color: Colors.grey.shade100));
-                            }
-
-                            final stopPairKey = '${rowStop}_$colStop';
-                            final cellData = currentMatrix[stopPairKey] ?? {'standard': 0.0, 'student': 0.0};
-                            
-                            // If we have an unsaved edit, show that instead of the database value
-                            final standardFare = _editedFares[stopPairKey] ?? (cellData['standard'] as num).toDouble();
-                            final studentFare = _editedFares.containsKey(stopPairKey) 
-                                ? (standardFare / 2).ceilToDouble() 
-                                : (cellData['student'] as num).toDouble();
-
-                            return DataCell(
-                              _buildFareInput(
-                                standardFare: standardFare,
-                                studentFare: studentFare,
-                                onChanged: (val) {
-                                  setState(() {
-                                    _editedFares[stopPairKey] = double.tryParse(val) ?? 0.0;
-                                  });
-                                },
-                              ),
-                            );
-                          }),
+          List<Widget> panels = [
+            // LEFT PANEL: Fare Editor Form
+            Expanded(
+              flex: isWideScreen ? 1 : 0,
+              child: Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.edit_road, size: 28),
+                          SizedBox(width: 8),
+                          Text('Update Fare', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                         ],
-                      );
-                    }),
+                      ),
+                      const Divider(height: 32),
+                      
+                      const Text('Origin Stop', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        value: _selectedOrigin,
+                        hint: const Text('Select Origin'),
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                        items: stops.map((stop) => DropdownMenuItem(value: stop, child: Text(stop))).toList(),
+                        onChanged: (val) => setState(() => _selectedOrigin = val),
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      const Text('Destination Stop', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        value: _selectedDestination,
+                        hint: const Text('Select Destination'),
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                        items: stops.map((stop) => DropdownMenuItem(value: stop, child: Text(stop))).toList(),
+                        onChanged: (val) => setState(() => _selectedDestination = val),
+                      ),
+
+                      const SizedBox(height: 16),
+                      
+                      const Text('Standard Fare (৳)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _fareController,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          hintText: 'e.g. 20',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          prefixIcon: const Icon(Icons.attach_money),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 24),
+                      
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).colorScheme.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: _isSaving ? null : () => _handleSaveFare(provider, docId),
+                          icon: _isSaving 
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                              : const Icon(Icons.save),
+                          label: const Text('SAVE TO MATRIX', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        '* Student fare (50%) will be generated automatically.', 
+                        style: TextStyle(color: Colors.grey, fontSize: 12, fontStyle: FontStyle.italic),
+                        textAlign: TextAlign.center,
+                      )
+                    ],
                   ),
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
+            
+            SizedBox(width: isWideScreen ? 24 : 0, height: isWideScreen ? 0 : 24),
+            
+            // RIGHT PANEL: Active Fare List
+            Expanded(
+              flex: isWideScreen ? 2 : 0,
+              child: SizedBox(
+                height: isWideScreen ? null : 400,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Active Fares (${matrix.length})', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: matrix.isEmpty
+                          ? const Center(child: Text('No fares defined yet. Use the editor to add them.'))
+                          : ListView.builder(
+                              itemCount: matrix.keys.length,
+                              itemBuilder: (context, index) {
+                                String key = matrix.keys.elementAt(index);
+                                Map<String, dynamic> fares = matrix[key];
+                                
+                                List<String> pair = key.split('_');
+                                String origin = pair.isNotEmpty ? pair[0] : 'Unknown';
+                                String destination = pair.length > 1 ? pair[1] : 'Unknown';
 
-  // Visual widget for the individual grid cells
-  Widget _buildFareInput({
-    required double standardFare,
-    required double studentFare,
-    required Function(String) onChanged,
-  }) {
-    return SizedBox(
-      width: 100,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            height: 30,
-            child: TextFormField(
-              initialValue: standardFare.toStringAsFixed(2),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              decoration: const InputDecoration(
-                prefixText: '৳ ',
-                border: UnderlineInputBorder(),
-                contentPadding: EdgeInsets.only(bottom: 12),
+                                return Card(
+                                  elevation: 2,
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                                    title: Wrap(
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        Text(origin, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                        const Padding(
+                                          padding: EdgeInsets.symmetric(horizontal: 8.0),
+                                          child: Icon(Icons.arrow_right_alt, color: Colors.grey),
+                                        ),
+                                        Text(destination, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                    subtitle: Padding(
+                                      padding: const EdgeInsets.only(top: 8.0),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                            child: Text('Standard: ৳${fares['standard']}', style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                            child: Text('Student: ৳${fares['student']}', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    trailing: IconButton(
+                                      icon: const Icon(Icons.edit, color: Colors.grey),
+                                      tooltip: 'Edit Fare',
+                                      onPressed: () {
+                                        setState(() {
+                                          _selectedOrigin = origin;
+                                          _selectedDestination = destination;
+                                          _fareController.text = fares['standard'].toString();
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
               ),
-              onChanged: onChanged,
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Std: ৳${studentFare.toStringAsFixed(2)}',
-            style: const TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.bold),
-          ),
-        ],
+          ];
+
+          return isWideScreen 
+              ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: panels) 
+              : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: panels);
+        },
       ),
     );
   }

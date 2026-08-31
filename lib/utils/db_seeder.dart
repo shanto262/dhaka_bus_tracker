@@ -99,12 +99,22 @@ class DatabaseSeeder {
     List<String> driverIds = [];
     List<String> conductorIds = [];
     
-    // 1. Create Staff Members
-    for (int i = 1; i <= 5; i++) {
+    final List<String> driverNames = [
+      'Md. Shafiqul Islam', 'Kamrul Hasan', 'Abdur Rahman', 'Tariqul Islam', 'Jamal Uddin',
+      'Faruk Hossain', 'Nazmul Huda', 'Habibur Rahman', 'Mizanur Rahman', 'Ashraful Islam'
+    ];
+
+    final List<String> conductorNames = [
+      'Arifur Rahman', 'Raju Ahmed', 'Liton Das', 'Sohail Rana', 'Sumon Ali',
+      'Ripon Mia', 'Jahid Hasan', 'Mehedi Hasan', 'Rakibul Islam', 'Sabbir Hossain'
+    ];
+    
+    // 1. Create 20 Staff Members (10 Drivers, 10 Conductors)
+    for (int i = 1; i <= 10; i++) {
       final driverRef = await _db.collection('staff').add({
-        'name': 'Driver $i (Bikash)',
+        'name': driverNames[i - 1],
         'role': 'driver',
-        'phone': '0170000000$i',
+        'phone': '017000000${i.toString().padLeft(2, '0')}', 
         'company': bikashCompany,
         'complaintsCount': 0,
         'complaintHistory': [],
@@ -112,9 +122,9 @@ class DatabaseSeeder {
       driverIds.add(driverRef.id);
 
       final conductorRef = await _db.collection('staff').add({
-        'name': 'Conductor $i (Bikash)',
+        'name': conductorNames[i - 1],
         'role': 'conductor',
-        'phone': '0190000000$i',
+        'phone': '019000000${i.toString().padLeft(2, '0')}',
         'company': bikashCompany,
         'complaintsCount': 0,
         'complaintHistory': [],
@@ -125,44 +135,45 @@ class DatabaseSeeder {
     final bikashStops = ['Mirpur 12', 'Mirpur 11', 'Mirpur 10', 'Mirpur 2', 'Mirpur 1', 'Technical', 'Kalyanpur', 'Shyamoli', 'Asad Gate', 'Science Lab', 'New Market', 'Nilkhet', 'Azimpur'];
     final bikashStopIds = getIds(bikashStops);
 
-    // 2. Create Fare Matrix (Using the exact route stops from your map)
+    // 2. Create Fare Matrix
     await _db.collection('fare_matrices').add({
       'company': bikashCompany,
       'stops': bikashStops,
       'matrix': {
-        'Mirpur 12_Mirpur 11': {'standard': 10.0, 'student': 5.0}, // Example pre-filled pair
+        'Mirpur 12_Mirpur 11': {'standard': 10.0, 'student': 5.0},
       }
     });
 
     // 3. Build Route Data
     List<Map<String, dynamic>> routes = [];
 
-    // Add 5 Bikash Buses dynamically
     for (int i = 1; i <= 5; i++) {
       routes.add({
         'company': bikashCompany,
         'companyBn': 'বিকাশ পরিবহন',
         'routeTag': 'bk-10$i',
         'routeName': 'Mirpur 12 ➔ Azimpur',
-        'licensePlate': 'Dhaka Metro-Ba 11-450$i', // Formatted for official Inter-city
+        'licensePlate': 'Dhaka Metro-Ba 11-450$i', 
         'standardFare': 35.0,
         'studentFare': 18.0,
         'nextStopId': nameToIdMap['Mirpur 10'] ?? '',
-        'etaMinutes': 2 + i, // Stagger ETAs
+        'etaMinutes': 2 + i, 
         'isLive': true,
-        'currentLat': 23.8120 - (i * 0.003), // Stagger GPS slightly along the route
+        'currentLat': 23.8120 - (i * 0.003), 
         'currentLng': 90.3670,
         'stopIds': bikashStopIds,
         'shifts': {
           'morning': {
             'timeWindow': '06:00 - 14:00',
+            // Uses staff 1 to 5
             'driverId': driverIds[i - 1],
             'conductorId': conductorIds[i - 1],
           },
           'evening': {
             'timeWindow': '14:00 - 22:00',
-            'driverId': driverIds[(i % 5)], 
-            'conductorId': conductorIds[(i % 5)],
+            // Uses staff 6 to 10
+            'driverId': driverIds[i + 4], 
+            'conductorId': conductorIds[i + 4],
           }
         }
       });

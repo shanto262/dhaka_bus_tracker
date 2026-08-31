@@ -22,7 +22,7 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
   final TextEditingController _busIdController = TextEditingController();
   final TextEditingController _detailsController = TextEditingController();
 
-  final List<String> _companies = ['Bikash Paribahan', 'Uttara Express', 'BRTC City Service'];
+  final List<String> _companies = ['Bikash Paribahan', 'Prochesta Paribahan', 'BRTC City Service' , 'Thikana Paribahan', 'Turag Paribahan','Raida Enterprise'];
 
   // Variables for Image and Loading State
   File? _selectedImage;
@@ -36,13 +36,12 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
     super.dispose();
   }
 
-  // Pick an image and aggressively compress it for Base64 storage
   Future<void> _pickImage() async {
     final XFile? pickedFile = await _picker.pickImage(
       source: ImageSource.camera, 
-      imageQuality: 30, // Drop quality to 30% to save space
-      maxWidth: 600,    // Force a max width
-      maxHeight: 600,   // Force a max height
+      imageQuality: 30,
+      maxWidth: 600,
+      maxHeight: 600, 
     );
     
     if (pickedFile != null) {
@@ -58,7 +57,7 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
     }
 
     setState(() {
-      _isSubmitting = true; // Show loading spinner
+      _isSubmitting = true; 
     });
 
     try {
@@ -126,10 +125,10 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
-                  child: const Text('BRTC REF • C-414', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  child: const Text('BRTA REF • C-414', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
                 ),
                 const SizedBox(height: 16),
-                Text(langProvider.t('BRTC authority will follow up within 48 hours.'), 
+                Text(langProvider.t('Bus Company Admin will look into this.'), 
                   style: const TextStyle(color: Colors.grey, fontSize: 12), textAlign: TextAlign.center),
                 const SizedBox(height: 24),
                 SizedBox(
@@ -238,7 +237,7 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
             onChanged: (newValue) => setState(() => _selectedCompany = newValue),
           ),
           const SizedBox(height: 16),
-          Text(langProvider.t('Bus ID / License Plate Number *'), style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(langProvider.t('Bus ID *'), style: const TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           TextFormField(
             controller: _busIdController,
