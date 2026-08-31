@@ -54,12 +54,12 @@ class AdminProvider extends ChangeNotifier {
   // ============================================================
   
   Future<void> _initSession() async {
-    // Listen to Auth State Changes
     _auth.authStateChanges().listen((User? user) async {
       if (user != null) {
         await _fetchAdminProfile(user.uid);
       } else {
         _companyName = null;
+        _isLoading = false;
         _cancelSubscriptions();
         notifyListeners();
       }

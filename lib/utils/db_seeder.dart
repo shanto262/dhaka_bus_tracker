@@ -10,11 +10,11 @@ class DatabaseSeeder {
     {'nameEn': 'Azampur', 'nameBn': 'আজমপুর', 'lat': 23.8680, 'lng': 90.4000},
     {'nameEn': 'Airport', 'nameBn': 'বিমানবন্দর', 'lat': 23.8510, 'lng': 90.4076},
     {'nameEn': 'Khilkhet', 'nameBn': 'খিলক্ষেত', 'lat': 23.8290, 'lng': 90.4180},
-    {'nameEn': 'Kuril Bishwa Road', 'nameBn': 'কুড়িল বিশ্বরোড', 'lat': 23.8160, 'lng': 90.4200},
+    {'nameEn': 'Kuril Bishwa Road', 'nameBn': 'কুড়িল বিশ্বরোড', 'lat': 23.8160, 'lng': 90.4200},
     {'nameEn': 'Banani', 'nameBn': 'বনানী', 'lat': 23.7937, 'lng': 90.4043},
     {'nameEn': 'Mohakhali', 'nameBn': 'মহাখালী', 'lat': 23.7776, 'lng': 90.4005},
     {'nameEn': 'Jahangir Gate', 'nameBn': 'জাহাঙ্গীর গেট', 'lat': 23.7690, 'lng': 90.3920},
-    {'nameEn': 'Bijoy Sarani', 'nameBn': 'বিজয় সরণি', 'lat': 23.7630, 'lng': 90.3890},
+    {'nameEn': 'Bijoy Sarani', 'nameBn': 'বিজয় সরণি', 'lat': 23.7630, 'lng': 90.3890},
     {'nameEn': 'Farmgate', 'nameBn': 'ফার্মগেট', 'lat': 23.7561, 'lng': 90.3872},
     {'nameEn': 'Kawran Bazar', 'nameBn': 'কাওরান বাজার', 'lat': 23.7505, 'lng': 90.3935},
     {'nameEn': 'Banglamotor', 'nameBn': 'বাংলামোটর', 'lat': 23.7460, 'lng': 90.3945},
@@ -38,7 +38,7 @@ class DatabaseSeeder {
     {'nameEn': 'Dhanmondi 27', 'nameBn': 'ধানমন্ডি ২৭', 'lat': 23.7550, 'lng': 90.3730},
     {'nameEn': 'Dhanmondi 32', 'nameBn': 'ধানমন্ডি ৩২', 'lat': 23.7510, 'lng': 90.3770},
     {'nameEn': 'Kalabagan', 'nameBn': 'কলাবাগান', 'lat': 23.7480, 'lng': 90.3800},
-    {'nameEn': 'Science Lab', 'nameBn': 'সায়েন্স ল্যাব', 'lat': 23.7400, 'lng': 90.3840},
+    {'nameEn': 'Science Lab', 'nameBn': 'সায়েন্স ল্যাব', 'lat': 23.7400, 'lng': 90.3840},
     {'nameEn': 'New Market', 'nameBn': 'নিউ মার্কেট', 'lat': 23.7330, 'lng': 90.3850},
     {'nameEn': 'Nilkhet', 'nameBn': 'নীলক্ষেত', 'lat': 23.7320, 'lng': 90.3880},
     {'nameEn': 'Azimpur', 'nameBn': 'আজিমপুর', 'lat': 23.7270, 'lng': 90.3850},
@@ -63,12 +63,13 @@ class DatabaseSeeder {
     debugPrint('🚀 Starting full Dhaka transit data scale-up...');
 
     if (forceReset) {
-      for (var doc in existingStops.docs) {
-        await doc.reference.delete();
-      }
-      final existingBuses = await _db.collection('buses').get();
-      for (var doc in existingBuses.docs) {
-        await doc.reference.delete();
+      // Clear out all relevant collections so you have a clean slate for testing
+      final collectionsToClear = ['bus_stops', 'buses', 'staff', 'fare_matrices', 'complaints'];
+      for (String col in collectionsToClear) {
+        final snapshot = await _db.collection(col).get();
+        for (var doc in snapshot.docs) {
+          await doc.reference.delete();
+        }
       }
     }
 
@@ -91,22 +92,84 @@ class DatabaseSeeder {
           .toList();
     }
 
-    final List<Map<String, dynamic>> routes = [
-      {
-        'company': 'Bikash Paribahan',
+    // ==========================================
+    // BIKASH PARIBAHAN SETUP 
+    // ==========================================
+    const bikashCompany = 'Bikash Paribahan';
+    List<String> driverIds = [];
+    List<String> conductorIds = [];
+    
+    // 1. Create Staff Members
+    for (int i = 1; i <= 5; i++) {
+      final driverRef = await _db.collection('staff').add({
+        'name': 'Driver $i (Bikash)',
+        'role': 'driver',
+        'phone': '0170000000$i',
+        'company': bikashCompany,
+        'complaintsCount': 0,
+        'complaintHistory': [],
+      });
+      driverIds.add(driverRef.id);
+
+      final conductorRef = await _db.collection('staff').add({
+        'name': 'Conductor $i (Bikash)',
+        'role': 'conductor',
+        'phone': '0190000000$i',
+        'company': bikashCompany,
+        'complaintsCount': 0,
+        'complaintHistory': [],
+      });
+      conductorIds.add(conductorRef.id);
+    }
+
+    final bikashStops = ['Mirpur 12', 'Mirpur 11', 'Mirpur 10', 'Mirpur 2', 'Mirpur 1', 'Technical', 'Kalyanpur', 'Shyamoli', 'Asad Gate', 'Science Lab', 'New Market', 'Nilkhet', 'Azimpur'];
+    final bikashStopIds = getIds(bikashStops);
+
+    // 2. Create Fare Matrix (Using the exact route stops from your map)
+    await _db.collection('fare_matrices').add({
+      'company': bikashCompany,
+      'stops': bikashStops,
+      'matrix': {
+        'Mirpur 12_Mirpur 11': {'standard': 10.0, 'student': 5.0}, // Example pre-filled pair
+      }
+    });
+
+    // 3. Build Route Data
+    List<Map<String, dynamic>> routes = [];
+
+    // Add 5 Bikash Buses dynamically
+    for (int i = 1; i <= 5; i++) {
+      routes.add({
+        'company': bikashCompany,
         'companyBn': 'বিকাশ পরিবহন',
-        'routeTag': 'BK-101',
+        'routeTag': 'bk-10$i',
         'routeName': 'Mirpur 12 ➔ Azimpur',
-        'licensePlate': 'Dhaka Metro-Ba 11-4521',
+        'licensePlate': 'Dhaka Metro-Ba 11-450$i', // Formatted for official Inter-city
         'standardFare': 35.0,
         'studentFare': 18.0,
         'nextStopId': nameToIdMap['Mirpur 10'] ?? '',
-        'etaMinutes': 3,
+        'etaMinutes': 2 + i, // Stagger ETAs
         'isLive': true,
-        'currentLat': 23.8120,
+        'currentLat': 23.8120 - (i * 0.003), // Stagger GPS slightly along the route
         'currentLng': 90.3670,
-        'stopIds': getIds(['Mirpur 12', 'Mirpur 11', 'Mirpur 10', 'Mirpur 2', 'Mirpur 1', 'Technical', 'Kalyanpur', 'Shyamoli', 'Asad Gate', 'Science Lab', 'New Market', 'Nilkhet', 'Azimpur']),
-      },
+        'stopIds': bikashStopIds,
+        'shifts': {
+          'morning': {
+            'timeWindow': '06:00 - 14:00',
+            'driverId': driverIds[i - 1],
+            'conductorId': conductorIds[i - 1],
+          },
+          'evening': {
+            'timeWindow': '14:00 - 22:00',
+            'driverId': driverIds[(i % 5)], 
+            'conductorId': conductorIds[(i % 5)],
+          }
+        }
+      });
+    }
+
+    // Add the remaining static companies
+    routes.addAll([
       {
         'company': 'Prajapati Paribahan',
         'companyBn': 'প্রজাপতি পরিবহন',
@@ -197,7 +260,7 @@ class DatabaseSeeder {
         'currentLng': 90.3920,
         'stopIds': getIds(['Azimpur', 'Nilkhet', 'Science Lab', 'Shahbagh', 'Moghbazar', 'Malibagh', 'Rampura', 'Badda', 'Kuril Bishwa Road']),
       },
-    ];
+    ]);
 
     WriteBatch busBatch = _db.batch();
     for (var bus in routes) {

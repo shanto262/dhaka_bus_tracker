@@ -8,6 +8,10 @@ import 'providers/theme_provider.dart';
 import 'screens/main_navigation_screen.dart';
 import 'providers/settings_provider.dart';
 import 'utils/db_seeder.dart';
+import 'providers/admin_provider.dart';
+import 'screens/admin_dashboard_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'screens/admin_login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -65,7 +69,35 @@ class DhakaBusTrackerApp extends StatelessWidget {
 
       themeMode: themeProvider.isDarkMode ? ThemeMode.dark : ThemeMode.light,
       
-      home: const MainNavigationScreen(),
+      // Web Routing Configuration
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const MainNavigationScreen(), // Passenger View
+        '/admin': (context) => const AdminAuthGate(),   // Admin Login / Dashboard View
+      },
+    );
+  }
+}
+
+// Automatically switches between Login and Dashboard based on Auth status
+class AdminAuthGate extends StatelessWidget {
+  const AdminAuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        
+        if (snapshot.hasData) {
+          return const AdminDashboardScreen();
+        }
+        
+        return const AdminLoginScreen();
+      },
     );
   }
 }
