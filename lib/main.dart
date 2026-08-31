@@ -25,6 +25,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => LanguageProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
+        ChangeNotifierProvider(create: (_) => AdminProvider()),
       ],
       child: const DhakaBusTrackerApp(),
     ),
