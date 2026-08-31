@@ -7,6 +7,9 @@ import '../providers/transit_provider.dart';
 import '../providers/language_provider.dart';
 import '../providers/settings_provider.dart'; 
 import '../models/bus_stop_model.dart';
+import '../widgets/smart_plan_panel.dart';
+import '../widgets/bus_cards.dart';
+import '../widgets/arrivals_sheet.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -16,14 +19,48 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
+  bool _showSmartPlan = false;
   LatLng _userLocation = const LatLng(23.7522, 90.3938);
   LatLng _centerLatLng = const LatLng(23.7561, 90.3872);
   bool _isGettingLocation = true;
+
+  // 1. Add the MapController and tracking variables
+  final MapController _mapController = MapController();
+  TransitProvider? _transitProvider;
+  String? _lastTrackedBusId;
 
   @override
   void initState() {
     super.initState();
     _fetchRealLocation();
+    
+    // 2. Attach a listener to watch for bus selections after the map builds
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _transitProvider = Provider.of<TransitProvider>(context, listen: false);
+      _transitProvider!.addListener(_onProviderUpdated);
+    });
+  }
+
+  // 3. This function runs every time the provider data changes
+  void _onProviderUpdated() {
+    final bus = _transitProvider!.selectedBus;
+    
+    // If a new bus is selected, move the camera directly to it!
+    if (bus != null && bus.busId != _lastTrackedBusId) {
+      _lastTrackedBusId = bus.busId;
+      _mapController.move(LatLng(bus.currentLat, bus.currentLng), 15.0); 
+    } else if (bus == null) {
+      // Clear the tracker if the user closes the bus card
+      _lastTrackedBusId = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    // Always clean up listeners and controllers to prevent memory leaks!
+    _transitProvider?.removeListener(_onProviderUpdated);
+    _mapController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchRealLocation() async {
@@ -32,7 +69,7 @@ class _MapScreenState extends State<MapScreen> {
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      setState(() => _isGettingLocation = false);
+      if (mounted) setState(() => _isGettingLocation = false);
       return;
     }
 
@@ -40,26 +77,32 @@ class _MapScreenState extends State<MapScreen> {
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        setState(() => _isGettingLocation = false);
+        if (mounted) setState(() => _isGettingLocation = false);
         return;
       }
     }
     
     if (permission == LocationPermission.deniedForever) {
-      setState(() => _isGettingLocation = false);
+      if (mounted) setState(() => _isGettingLocation = false);
       return;
     }
 
-    final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high
-    );
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high
+      );
 
-    if (mounted) {
-      setState(() {
-        _userLocation = LatLng(position.latitude, position.longitude);
-        _centerLatLng = _userLocation;
-        _isGettingLocation = false;
-      });
+      if (mounted) {
+        setState(() {
+          _userLocation = LatLng(position.latitude, position.longitude);
+          _centerLatLng = _userLocation;
+          _isGettingLocation = false;
+        });
+        // Optionally move the map to the user's location when found
+        _mapController.move(_userLocation, 14.0);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isGettingLocation = false);
     }
   }
 
@@ -81,12 +124,30 @@ class _MapScreenState extends State<MapScreen> {
         title: Text(langProvider.t('Dhaka Bus Tracker'), style: const TextStyle(color: Colors.white)),
         backgroundColor: Theme.of(context).colorScheme.primary,
         elevation: 0,
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _showSmartPlan = !_showSmartPlan;
+              });
+            },
+            child: const Row(
+              children: [
+                Icon(Icons.search, color: Colors.white, size: 20),
+                SizedBox(width: 4),
+                Icon(Icons.route, color: Colors.white),
+              ],
+            ),
+          ),
+        ],
       ),
       body: provider.isLoading || _isGettingLocation
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
                 FlutterMap(
+                  // 4. Attach the MapController to the FlutterMap
+                  mapController: _mapController,
                   options: MapOptions(
                     initialCenter: _centerLatLng,
                     initialZoom: 14.0,
@@ -143,7 +204,12 @@ class _MapScreenState extends State<MapScreen> {
                               child: GestureDetector(
                                 onTap: () {
                                   provider.selectStop(stop);
-                                  _showArrivalsBottomSheet(context, stop, provider, langProvider);
+                                  showArrivalsBottomSheet(
+                                    context: context, 
+                                    stop: stop, 
+                                    provider: provider, 
+                                    langProvider: langProvider
+                                  );
                                 },
                                 child: Container(
                                   decoration: BoxDecoration(
@@ -184,127 +250,27 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ],
                 ),
-
-                if (provider.selectedBus != null)
+                
+                if (_showSmartPlan)
                   Positioned(
+                    top: 12,
+                    left: 12,
+                    right: 12,
+                    child: SmartPlanPanel(
+                      onClose: () => setState(() => _showSmartPlan = false),
+                      onBusSelected: () => setState(() => _showSmartPlan = false),
+                    ),
+                  ),
+
+                if (provider.selectedBus != null && !_showSmartPlan)
+                  const Positioned(
                     left: 16,
                     right: 16,
                     bottom: 20,
-                    child: Card(
-                      elevation: 6,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.shade100,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(Icons.directions_bus, color: Colors.deepOrange),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    langProvider.isBangla
-                                        ? provider.selectedBus!.companyBn
-                                        : provider.selectedBus!.company,
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                  ),
-                                  Text(
-                                    '${provider.selectedBus!.routeTag} • ${provider.selectedBus!.routeName}',
-                                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.close, color: Colors.redAccent),
-                              tooltip: 'Stop Tracking',
-                              onPressed: () {
-                                provider.clearStopSelection();
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                    child: SelectedBusCard(), 
                   ),
               ],
             ),
-    );
-  }
-
-  void _showArrivalsBottomSheet(
-      BuildContext context, BusStop stop, TransitProvider provider, LanguageProvider langProvider) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) {
-        final buses = provider.getBusesForSelectedStop();
-        final stopName = langProvider.isBangla ? stop.nameBn : stop.nameEn;
-        
-        return Container(
-          padding: const EdgeInsets.all(16.0),
-          height: 350,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '$stopName ${langProvider.t('Upcoming Arrivals')}',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const Divider(),
-              Expanded(
-                child: buses.isEmpty
-                    ? Center(child: Text(langProvider.t('No buses currently scheduled.')))
-                    : ListView.builder(
-                        itemCount: buses.length,
-                        itemBuilder: (context, index) {
-                          final bus = buses[index];
-                          final companyName = langProvider.isBangla ? bus.companyBn : bus.company;
-                          final actualEta = provider.getDynamicEta(bus, stop); 
-
-                          return ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.green.shade100, 
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                bus.routeTag, 
-                                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade900),
-                              ),
-                            ),
-                            title: Text(companyName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text(
-                              langProvider.t(bus.isLive ? 'LIVE TRACKING' : 'SCHEDULED'), 
-                              style: TextStyle(color: bus.isLive ? Colors.green : Colors.grey),
-                            ),
-                            trailing: Text(
-                              '$actualEta min', 
-                              style: const TextStyle(fontSize: 18, color: Colors.orange, fontWeight: FontWeight.bold),
-                            ),
-                            onTap: () {
-                              provider.selectBus(bus);
-                              Navigator.pop(context);
-                            },
-                          );
-                        },
-                      ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

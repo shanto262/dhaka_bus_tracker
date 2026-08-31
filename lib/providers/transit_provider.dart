@@ -250,4 +250,71 @@ class TransitProvider extends ChangeNotifier {
 
     return calculatedEta < 1 ? 1 : calculatedEta; 
   }
+
+  // ============================================================
+  // SMART TRIP PLANNER LOGIC
+  // ============================================================
+
+  List<Bus> getMatchingBuses(BusStop fromStop, BusStop toStop) {
+    if (fromStop.id == toStop.id) return [];
+
+    return _buses.where((bus) {
+      // Find the first occurrence of the departure stop
+      final fromIndex = bus.stopIds.indexOf(fromStop.id);
+      
+      // Use lastIndexOf for the destination to handle circular routes
+      final toIndex = bus.stopIds.lastIndexOf(toStop.id);
+
+      // Bus must contain both stops and travel From -> To
+      return fromIndex >= 0 && toIndex >= 0 && fromIndex < toIndex;
+    }).toList();
+  }
+
+  int estimatedTravelTime(Bus bus, BusStop fromStop, BusStop toStop) {
+    final fromIndex = bus.stopIds.indexOf(fromStop.id);
+    final toIndex = bus.stopIds.lastIndexOf(toStop.id);
+
+    if (fromIndex < 0 || toIndex < 0 || toIndex <= fromIndex) {
+      return bus.etaMinutes;
+    }
+
+    final numberOfStops = toIndex - fromIndex;
+    
+    // Each stop-to-stop segment is estimated as 5 minutes
+    const minutesPerStop = 5;
+    final estimated = numberOfStops * minutesPerStop;
+
+    return estimated > 0 ? estimated : bus.etaMinutes;
+  }
+
+  Bus? getFastestBus(List<Bus> matchingBuses, BusStop fromStop, BusStop toStop) {
+    if (matchingBuses.isEmpty) return null;
+    
+    final buses = List<Bus>.from(matchingBuses);
+    buses.sort((a, b) => estimatedTravelTime(a, fromStop, toStop).compareTo(estimatedTravelTime(b, fromStop, toStop)));
+    
+    return buses.first;
+  }
+
+  Bus? getBestBus(List<Bus> matchingBuses, BusStop fromStop, BusStop toStop) {
+    if (matchingBuses.isEmpty) return null;
+
+    Bus best = matchingBuses.first;
+    double bestScore = double.infinity;
+
+    for (final bus in matchingBuses) {
+      final time = estimatedTravelTime(bus, fromStop, toStop);
+      final fare = bus.standardFare;
+      
+      // Balanced score: travel time + fare + small penalty for non-live buses
+      final score = time + (fare * 0.20) + (bus.isLive ? 0 : 5);
+
+      if (score < bestScore) {
+        bestScore = score;
+        best = bus;
+      }
+    }
+
+    return best;
+  }
 }

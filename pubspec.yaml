@@ -55,8 +55,28 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.1
 
 flutter:
   uses-material-design: true
   assets:
     - assets/data/dhaka_routes.json
+    - assets/dhaka_bus_tracker_logo.png
+
+# =========================================================
+# APP ICON CONFIGURATION
+# =========================================================
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/dhaka_bus_tracker_logo.png"
+
+# =========================================================
+# SPLASH SCREEN CONFIGURATION
+# =========================================================
+flutter_native_splash:
+  color: "#ffffff"
+  image: "assets/dhaka_bus_tracker_logo.png"
+  android: true
+  ios: true
