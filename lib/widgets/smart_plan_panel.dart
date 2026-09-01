@@ -4,6 +4,7 @@ import '../models/bus_stop_model.dart';
 import '../models/bus_model.dart';
 import '../providers/transit_provider.dart';
 import 'bus_cards.dart';
+import '../providers/language_provider.dart';
 
 class SmartPlanPanel extends StatefulWidget {
   final VoidCallback onClose;
@@ -26,14 +27,18 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
   TimeOfDay? _arrivalTime;
   List<Bus> _matchingBuses = [];
 
-  void _planTrip(TransitProvider provider) {
+  void _planTrip(TransitProvider provider, LanguageProvider langProvider) {
     if (_fromStop == null || _toStop == null || _arrivalTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select From, To and arrival time.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(langProvider.isBangla ? 'অনুগ্রহ করে কোথা থেকে, কোথায় এবং পৌঁছানোর সময় নির্বাচন করুন।' : 'Please select From, To and arrival time.')),
+      );
       return;
     }
 
     if (_fromStop!.id == _toStop!.id) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('From and To cannot be the same stop.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(langProvider.isBangla ? 'শুরু এবং গন্তব্য একই স্টপ হতে পারে না।' : 'From and To cannot be the same stop.')),
+      );
       return;
     }
 
@@ -63,6 +68,7 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
     required BusStop? value,
     required List<BusStop> stops,
     required ValueChanged<BusStop?> onChanged,
+    required LanguageProvider langProvider,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -78,13 +84,14 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
             children: [
               Icon(icon, size: 19),
               const SizedBox(width: 8),
-              Text(title),
+              Text(langProvider.t(title)),
             ],
           ),
           items: stops.map((stop) {
+            final stopName = langProvider.isBangla ? stop.nameBn : stop.nameEn;
             return DropdownMenuItem<BusStop>(
               value: stop,
-              child: Text(stop.nameEn, overflow: TextOverflow.ellipsis),
+              child: Text(stopName, overflow: TextOverflow.ellipsis),
             );
           }).toList(),
           onChanged: onChanged,
@@ -96,12 +103,14 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<TransitProvider>(context);
+    final langProvider = Provider.of<LanguageProvider>(context);
 
     return Material(
       elevation: 8,
       borderRadius: BorderRadius.circular(18),
       child: Container(
-        constraints: const BoxConstraints(maxHeight: 600),
+        // Responsive height constraint to fit smaller screen sizes cleanly
+        constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(18),
@@ -110,6 +119,7 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
           padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
@@ -122,7 +132,7 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
                     child: Icon(Icons.psychology, color: Theme.of(context).colorScheme.primary),
                   ),
                   const SizedBox(width: 9),
-                  const Expanded(child: Text('Smart Trip Planner', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                  Expanded(child: Text(langProvider.t('Smart Trip Planner'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
                   IconButton(
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
@@ -138,6 +148,7 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
                 value: _fromStop,
                 stops: provider.stops,
                 onChanged: (value) => setState(() { _fromStop = value; _showResults = false; }),
+                langProvider: langProvider,
               ),
               const SizedBox(height: 8),
               _buildStopDropdown(
@@ -146,6 +157,7 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
                 value: _toStop,
                 stops: provider.stops,
                 onChanged: (value) => setState(() { _toStop = value; _showResults = false; }),
+                langProvider: langProvider,
               ),
               const SizedBox(height: 8),
               Card(
@@ -153,8 +165,8 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
                 child: ListTile(
                   dense: true,
                   leading: const Icon(Icons.access_time),
-                  title: const Text('Arrive by', style: TextStyle(fontWeight: FontWeight.w600)),
-                  subtitle: Text(_arrivalTime == null ? 'Select arrival time' : _arrivalTime!.format(context)),
+                  title: Text(langProvider.t('Arrive by'), style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(_arrivalTime == null ? langProvider.t('Select arrival time') : _arrivalTime!.format(context)),
                   trailing: const Icon(Icons.keyboard_arrow_down),
                   onTap: _selectArrivalTime,
                 ),
@@ -164,24 +176,131 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
                 width: double.infinity,
                 height: 45,
                 child: ElevatedButton.icon(
-                  onPressed: () => _planTrip(provider),
+                  onPressed: () => _planTrip(provider, langProvider),
                   icon: const Icon(Icons.route),
-                  label: const Text('PLAN MY TRIP', style: TextStyle(fontWeight: FontWeight.bold)),
+                  label: Text(langProvider.t('PLAN MY TRIP'), style: const TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
               if (_showResults) ...[
                 const SizedBox(height: 12),
                 const Divider(),
                 const SizedBox(height: 8),
-                if (_matchingBuses.isEmpty)
-                  const NoResultCard()
-                else ...[
-                  const Text('Smart Recommendations', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                if (_matchingBuses.isEmpty) ...[
+                  Builder(
+                    builder: (context) {
+                      final multiLeg = provider.findMultiLegRoute(_fromStop!, _toStop!);
+                      if (multiLeg == null) {
+                        return const NoResultCard();
+                      }
+
+                      final Bus leg1 = multiLeg['leg1Bus'];
+                      final Bus leg2 = multiLeg['leg2Bus'];
+                      final BusStop transfer = multiLeg['transferStop'];
+                      final transferName = langProvider.isBangla ? transfer.nameBn : transfer.nameEn;
+                      final leg1Name = langProvider.isBangla ? leg1.companyBn : leg1.company;
+                      final leg2Name = langProvider.isBangla ? leg2.companyBn : leg2.company;
+                      final fromName = langProvider.isBangla ? _fromStop!.nameBn : _fromStop!.nameEn;
+                      final toName = langProvider.isBangla ? _toStop!.nameBn : _toStop!.nameEn;
+
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 8, offset: const Offset(0, 4))],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.alt_route, color: Colors.orangeAccent, size: 18),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '$fromName ➔ $toName',
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                                  child: Text(langProvider.t('1 Transfer Required'), style: const TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
+                            ),
+                            const Divider(color: Colors.white24, height: 20),
+                            
+                            // Leg 1
+                            Row(
+                              children: [
+                                const Icon(Icons.directions_bus, color: Colors.greenAccent, size: 14),
+                                const SizedBox(width: 6),
+                                Text('${langProvider.t('Leg 1')}: $leg1Name', style: const TextStyle(color: Colors.greenAccent, fontSize: 13, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text('${langProvider.t('Board at')} $fromName ➔ ${langProvider.t('Get down at')} $transferName', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                            
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 6.0),
+                              child: Icon(Icons.arrow_downward, color: Colors.white54, size: 16),
+                            ),
+
+                            // Leg 2
+                            Row(
+                              children: [
+                                const Icon(Icons.directions_bus, color: Colors.greenAccent, size: 14),
+                                const SizedBox(width: 6),
+                                Text('${langProvider.t('Leg 2')}: $leg2Name', style: const TextStyle(color: Colors.greenAccent, fontSize: 13, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text('${langProvider.t('Board at')} $transferName ➔ ${langProvider.t('Arrive at')} $toName', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+
+                            const SizedBox(height: 14),
+                            
+                            // Action buttons wrapped for safety
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.greenAccent)),
+                                    onPressed: () {
+                                      provider.selectBus(leg1);
+                                      widget.onBusSelected();
+                                    },
+                                    icon: const Icon(Icons.map, size: 14, color: Colors.greenAccent),
+                                    label: Text(langProvider.t('Track Leg 1'), style: const TextStyle(color: Colors.greenAccent, fontSize: 12)),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.orangeAccent)),
+                                    onPressed: () {
+                                      provider.selectBus(leg2);
+                                      widget.onBusSelected();
+                                    },
+                                    icon: const Icon(Icons.map, size: 14, color: Colors.orangeAccent),
+                                    label: Text(langProvider.t('Track Leg 2'), style: const TextStyle(color: Colors.orangeAccent, fontSize: 12)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ] else ...[
+                  Text(langProvider.t('Smart Recommendations'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   
                   if (provider.getFastestBus(_matchingBuses, _fromStop!, _toStop!) != null) ...[
                     RecommendationCard(
-                      title: 'FASTEST',
+                      title: langProvider.t('FASTEST'),
                       icon: Icons.bolt,
                       iconColor: Colors.orange,
                       bus: provider.getFastestBus(_matchingBuses, _fromStop!, _toStop!)!,
@@ -198,7 +317,7 @@ class _SmartPlanPanelState extends State<SmartPlanPanel> {
                   if (provider.getBestBus(_matchingBuses, _fromStop!, _toStop!) != null &&
                       provider.getBestBus(_matchingBuses, _fromStop!, _toStop!)!.busId != provider.getFastestBus(_matchingBuses, _fromStop!, _toStop!)?.busId) ...[
                     RecommendationCard(
-                      title: 'BEST OPTION',
+                      title: langProvider.t('BEST OPTION'),
                       icon: Icons.star,
                       iconColor: Colors.amber,
                       bus: provider.getBestBus(_matchingBuses, _fromStop!, _toStop!)!,

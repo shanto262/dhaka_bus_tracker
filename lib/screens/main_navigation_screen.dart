@@ -16,21 +16,28 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    MapScreen(),
-    AiAssistantScreen(),
-    ComplaintScreen(),
-    SettingsScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final langProvider = Provider.of<LanguageProvider>(context);
 
+    // Initialized inside build so we can pass the callback dynamically
+    final List<Widget> screens = [
+      const MapScreen(),
+      AiAssistantScreen(
+        onNavigateToMap: () {
+          setState(() {
+            _currentIndex = 0; // Switches bottom navigation tab to Map (index 0)
+          });
+        },
+      ),
+      const ComplaintScreen(),
+      const SettingsScreen(),
+    ];
+
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: screens,
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,

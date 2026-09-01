@@ -180,7 +180,7 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(langProvider.t('Submit Complaint'), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-            Text(langProvider.t('Dhaka Bus Tracker · BRTC Authority'), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            Text(langProvider.t('Dhaka Bus Tracker · BRTA Authority'), style: const TextStyle(color: Colors.white70, fontSize: 12)),
           ],
         ),
         backgroundColor: Theme.of(context).colorScheme.primary,
@@ -248,7 +248,7 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
               return null;
             },
             decoration: InputDecoration(
-              hintText: langProvider.t('e.g. Dhaka Metro-Cha 11-2367'),
+              hintText: langProvider.t('e.g. BR-01'),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
               filled: true,
               fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.grey[800] : Colors.grey[100],

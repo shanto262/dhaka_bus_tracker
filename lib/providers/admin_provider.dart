@@ -136,25 +136,17 @@ class AdminProvider extends ChangeNotifier {
   // FARE MATRIX MANAGEMENT
   // ============================================================
 
-  /// Updates the standard fare between two stops and auto-calculates the student fare.
-  Future<void> updateFare(String routeId, String stopPairKey, double newStandardFare) async {
+  /// Updates the standard and student fare between two stops safely.
+  Future<void> updateFare(String routeId, String stopPairKey, double newStandardFare, double newStudentFare) async {
     if (_companyName == null) return;
 
-    // Calculate half fare, but enforce the 10 BDT absolute minimum
-    double newStudentFare = (newStandardFare / 2).ceilToDouble(); 
-    if (newStudentFare < 10.0) {
-      newStudentFare = 10.0;
-    }
-
     try {
-      await _firestore.collection('fare_matrices').doc(routeId).set({
-        'matrix': {
-          stopPairKey: {
-            'standard': newStandardFare,
-            'student': newStudentFare,
-          }
+      await _firestore.collection('fare_matrices').doc(routeId).update({
+        'matrix.$stopPairKey': {
+          'standard': newStandardFare,
+          'student': newStudentFare,
         }
-      }, SetOptions(merge: true));
+      });
     } catch (e) {
       debugPrint('Error updating fare: $e');
     }

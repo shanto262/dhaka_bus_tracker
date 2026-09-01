@@ -165,7 +165,7 @@ class _ComplaintsTabState extends State<ComplaintsTab> {
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: SingleChildScrollView( // Added scrollview in case of mobile overflow
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -192,7 +192,7 @@ class _ComplaintsTabState extends State<ComplaintsTab> {
             ),
             const Divider(height: 32),
             
-            // Complaint Details & Photo (Swapped Row for Wrap to handle narrow screens)
+            // Complaint Details & Photo (Visible for both Pending and Resolved tickets)
             Wrap(
               crossAxisAlignment: WrapCrossAlignment.start,
               spacing: 16,
@@ -223,14 +223,14 @@ class _ComplaintsTabState extends State<ComplaintsTab> {
                       image: DecorationImage(
                         image: MemoryImage(base64Decode(complaint['photo_base64'])),
                         fit: BoxFit.cover,
-                      )
+                      ),
                     ),
                   )
               ],
             ),
             const Divider(height: 48),
 
-            // Attribution Engine
+            // Attribution Engine & Actions (Only for Pending)
             if (!isResolved) ...[
               const Text('Attribution Engine', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),

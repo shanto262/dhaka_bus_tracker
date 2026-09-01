@@ -6,7 +6,9 @@ import '../providers/language_provider.dart';
 import '../providers/transit_provider.dart';
 
 class AiAssistantScreen extends StatefulWidget {
-  const AiAssistantScreen({super.key});
+  final VoidCallback? onNavigateToMap; // Callback to switch to the Map tab
+
+  const AiAssistantScreen({super.key, this.onNavigateToMap});
 
   @override
   State<AiAssistantScreen> createState() => _AiAssistantScreenState();
@@ -17,11 +19,14 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   bool _isTyping = false;
   
   static const String _geminiApiKey = String.fromEnvironment(
-  'GEMINI_API_KEY',
-  defaultValue: 'YOUR_API_KEY_HERE',
-); 
+    'GEMINI_API_KEY',
+    defaultValue: 'YOUR_API_KEY_HERE',
+  ); 
   
   final List<Map<String, dynamic>> _messages = [];
+
+  // In-memory cache to save responses and prevent redundant free-tier API calls
+  final Map<String, Map<String, dynamic>> _responseCache = {};
 
   @override
   void initState() {
@@ -41,17 +46,31 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     final userText = (presetText ?? _controller.text).trim();
     if (userText.isEmpty) return;
     
+    // Normalize text for reliable cache matching
+    final String cacheKey = userText.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
     setState(() {
       _messages.add({'isBot': false, 'type': 'text', 'text': userText});
       _isTyping = true;
     });
     _controller.clear();
 
+    // Check if we already have this response cached locally
+    if (_responseCache.containsKey(cacheKey)) {
+      await Future.delayed(const Duration(milliseconds: 150)); // Natural micro-delay
+      setState(() {
+        _messages.add(Map<String, dynamic>.from(_responseCache[cacheKey]!));
+        _isTyping = false;
+      });
+      return;
+    }
+
     try {
       final transitProvider = Provider.of<TransitProvider>(context, listen: false);
       final langProvider = Provider.of<LanguageProvider>(context, listen: false);
       final targetLanguage = langProvider.isBangla ? 'Bangla' : 'English';
 
+      // 1. Build the Route Context
       final availableRoutes = transitProvider.buses.map((b) {
         final stopNames = b.stopIds.map((id) {
           final match = transitProvider.stops.where((s) => s.id == id);
@@ -63,24 +82,46 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         final busName = langProvider.isBangla ? b.companyBn : b.company;
         final routeTitle = langProvider.isBangla ? b.routeName : b.routeName;
 
-        return '$busName ($routeTitle, Tag: ${b.routeTag}, Stops: ${stopNames.join(" -> ")}, Standard Fare: ৳${b.standardFare}, Student Fare: ৳${b.studentFare})';
+        return '$busName ($routeTitle, Tag: ${b.routeTag}, Stops: ${stopNames.join(" -> ")})';
       }).join(' | ');
+
+      // 2. Build the Fare Matrix Context
+      String fareMatrixContext = '';
+      try {
+        fareMatrixContext = jsonEncode(transitProvider.fareMatrices);
+      } catch (_) {
+        fareMatrixContext = '[]';
+      }
 
       final model = GenerativeModel(
         model: 'gemini-3.6-flash',
         apiKey: _geminiApiKey,
         generationConfig: GenerationConfig(responseMimeType: 'application/json'),
         systemInstruction: Content.system('''
-          You are a friendly Dhaka transit AI assistant. You have access to these live bus routes: $availableRoutes.
+          You are a friendly Dhaka transit AI assistant. 
+          
+          You have access to these live bus routes and their exact routeTags and stop sequences: $availableRoutes.
+          You also have access to specific point-to-point fare matrices: $fareMatrixContext.
           
           RULES:
           - You must ALWAYS respond in pure JSON format.
-          - ALWAYS provide your response (origin, destination, busName, and conversational text) in $targetLanguage.
-          - To calculate "eta", count the number of stops between the origin and destination in the route sequence and multiply by 6 minutes.
-          - If the user asks for a route from place A to place B (e.g. "Mirpur 10 to Farmgate" or "মিরপুর ১০ থেকে ফার্মগেট"), return this exact JSON structure:
-            {"isBot": true, "type": "route_card", "origin": "Start Location", "destination": "End Location", "busName": "Company Name (Tag)", "standardFare": 35, "studentFare": 18, "eta": "18 min"}
-          - If the user asks a casual question or makes small talk, be conversational and friendly. Return this exact JSON structure:
-            {"isBot": true, "type": "text", "text": "Your response in $targetLanguage here."}
+          - ALWAYS provide your response location names and text in $targetLanguage.
+          - To calculate "eta", count the total number of stops across the journey and multiply by 6 minutes.
+          - DIRECT ROUTE: If a single bus connects origin to destination, use the "route_card" format. Ensure the "busName" includes the routeTag in parentheses (e.g., "Bikash Paribahan (bk-101)").
+          - MULTI-LEG ROUTE: If no single bus connects them directly, find a logical intermediate transfer stop where the user can switch from Leg 1 to Leg 2. Use the "multi_leg_card" format.
+          
+          FARE CALCULATION FOR DIRECT ROUTES:
+          - Look for the exact key matching "Origin_Destination" in the matrix. If found, use standard and student values. If not, estimate Tk 2.53/stop (minimum 10). Student is 50% if standard >= 20, else minimum 10.
+
+          JSON RESPONSE FORMATS:
+          - Direct Route Request:
+            {"isBot": true, "type": "route_card", "origin": "Start Location", "destination": "End Location", "busName": "Company Name (bk-101)", "standardFare": 10, "studentFare": 10, "eta": "18 min"}
+          
+          - Transfer / Multi-Leg Request (NO FARES REQUIRED HERE, CODE WILL CALCULATE THEM):
+            {"isBot": true, "type": "multi_leg_card", "origin": "Start", "destination": "End", "transferStop": "Transfer Location", "leg1Bus": "Bus A (bk-101)", "leg2Bus": "Bus B (bk-202)", "eta": "72 min"}
+
+          - Casual Conversation/Small Talk:
+            {"isBot": true, "type": "text", "text": "Your conversational response here."}
         '''),
       );
 
@@ -88,6 +129,21 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       
       final String rawJson = response.text?.trim() ?? '{}';
       final Map<String, dynamic> parsedData = jsonDecode(rawJson);
+
+      // If it's a multi-leg card, calculate exact deterministic fares via code
+      if (parsedData['type'] == 'multi_leg_card') {
+        final origin = parsedData['origin'] ?? '';
+        final transfer = parsedData['transferStop'] ?? '';
+        final destination = parsedData['destination'] ?? '';
+
+        final calculatedFares = _calculateMultiLegFares(origin, transfer, destination, transitProvider);
+        
+        parsedData['totalStandardFare'] = calculatedFares['standard']?.toInt();
+        parsedData['totalStudentFare'] = calculatedFares['student']?.toInt();
+      }
+
+      // Store in local cache
+      _responseCache[cacheKey] = parsedData;
 
       setState(() {
         _messages.add(parsedData);
@@ -106,6 +162,57 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
               : 'Sorry, I am having trouble connecting to the transit network right now.'
         });
       });
+    }
+  }
+
+  Map<String, double> _calculateMultiLegFares(String origin, String transfer, String destination, TransitProvider provider) {
+    double getLegFare(String org, String dest) {
+      for (var matrixDoc in provider.fareMatrices) {
+        final Map<String, dynamic> matrixMap = matrixDoc['matrix'] ?? {};
+        final String key1 = '${org}_${dest}';
+        final String key2 = '${dest}_${org}';
+        
+        if (matrixMap.containsKey(key1)) {
+          return (matrixMap[key1]['standard'] as num?)?.toDouble() ?? 10.0;
+        } else if (matrixMap.containsKey(key2)) {
+          return (matrixMap[key2]['standard'] as num?)?.toDouble() ?? 10.0;
+        }
+      }
+      return 15.0; 
+    }
+
+    double leg1Standard = getLegFare(origin, transfer);
+    double leg2Standard = getLegFare(transfer, destination);
+    double totalStandard = leg1Standard + leg2Standard;
+
+    double totalStudent = totalStandard < 20.0 ? 10.0 : (totalStandard / 2).roundToDouble();
+    if (totalStudent < 10.0) totalStudent = 10.0;
+
+    return {
+      'standard': totalStandard,
+      'student': totalStudent,
+    };
+  }
+
+  void _onRouteCardTapped(String busNameString) {
+    final transitProvider = Provider.of<TransitProvider>(context, listen: false);
+
+    final RegExp regExp = RegExp(r'\(([^)]+)\)');
+    final match = regExp.firstMatch(busNameString);
+    
+    if (match != null) {
+      final String routeTag = match.group(1)!;
+      
+      final matchingBus = transitProvider.buses.firstWhere(
+        (b) => b.routeTag.toLowerCase() == routeTag.toLowerCase(),
+        orElse: () => transitProvider.buses.isNotEmpty ? transitProvider.buses.first : throw('No buses available'),
+      );
+
+      transitProvider.selectBus(matchingBus);
+
+      if (widget.onNavigateToMap != null) {
+        widget.onNavigateToMap!();
+      }
     }
   }
 
@@ -164,6 +271,8 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
                 final msg = _messages[index];
                 if (msg['type'] == 'route_card') {
                   return _buildRouteCard(msg, langProvider);
+                } else if (msg['type'] == 'multi_leg_card') {
+                  return _buildMultiLegCard(msg, langProvider);
                 }
                 return _buildChatBubble(msg, langProvider);
               },
@@ -216,61 +325,189 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   }
 
   Widget _buildRouteCard(Map<String, dynamic> msg, LanguageProvider langProvider) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.location_on, color: Colors.white, size: 16),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '${msg['origin'] ?? ''} ➔ ${msg['destination'] ?? ''}', 
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          if (msg['busName'] != null) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.directions_bus, color: Colors.greenAccent, size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  msg['busName'], 
-                  style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
+    final String busNameStr = msg['busName'] ?? '';
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.15),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            )
           ],
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildFareBox(langProvider.isBangla ? 'সাধারণ ভাড়া' : 'Standard fare', '৳${msg['standardFare']}'),
-              _buildFareBox(langProvider.isBangla ? 'শিক্ষার্থী ভাড়া' : 'Student fare', '৳${msg['studentFare']}'),
-              Row(
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _onRouteCardTapped(busNameStr),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.access_time, color: Colors.white70, size: 16),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${msg['eta'] ?? '--'}', 
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on, color: Colors.white, size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${msg['origin'] ?? ''} ➔ ${msg['destination'] ?? ''}', 
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const Icon(Icons.touch_app, color: Colors.white70, size: 18),
+                    ],
+                  ),
+                  if (busNameStr.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.directions_bus, color: Colors.greenAccent, size: 16),
+                        const SizedBox(width: 8),
+                        Text(
+                          busNameStr, 
+                          style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildFareBox(langProvider.t('Standard fare'), '৳${msg['standardFare']}'),
+                      _buildFareBox(langProvider.t('Student fare'), '৳${msg['studentFare']}'),
+                      Row(
+                        children: [
+                          const Icon(Icons.access_time, color: Colors.white70, size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${msg['eta'] ?? '--'}', 
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      )
+                    ],
                   ),
                 ],
-              )
-            ],
+              ),
+            ),
           ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMultiLegCard(Map<String, dynamic> msg, LanguageProvider langProvider) {
+    final String leg1Bus = msg['leg1Bus'] ?? '';
+    final String origin = msg['origin'] ?? '';
+    final String destination = msg['destination'] ?? '';
+    final String transferStop = msg['transferStop'] ?? '';
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.15),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            )
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _onRouteCardTapped(leg1Bus),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.alt_route, color: Colors.orangeAccent, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '$origin ➔ $destination', 
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(color: Colors.orange.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+                        child: Text(langProvider.t('1 Transfer'), style: const TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  const Divider(color: Colors.white24, height: 24),
+                  
+                  // Leg 1
+                  Row(
+                    children: [
+                      const Icon(Icons.directions_bus, color: Colors.greenAccent, size: 14),
+                      const SizedBox(width: 6),
+                      Text('${langProvider.t('Leg 1')}: $leg1Bus', style: const TextStyle(color: Colors.greenAccent, fontSize: 13, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text('${langProvider.t('Board at')} $origin ➔ ${langProvider.t('Get down at')} $transferStop', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                  
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: Icon(Icons.arrow_downward, color: Colors.white54, size: 16),
+                  ),
+
+                  // Leg 2
+                  Row(
+                    children: [
+                      const Icon(Icons.directions_bus, color: Colors.greenAccent, size: 14),
+                      const SizedBox(width: 6),
+                      Text('${langProvider.t('Leg 2')}: ${msg['leg2Bus']}', style: const TextStyle(color: Colors.greenAccent, fontSize: 13, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text('${langProvider.t('Board at')} $transferStop ➔ ${langProvider.t('Arrive at')} $destination', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+
+                  const SizedBox(height: 16),
+                  
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildFareBox(langProvider.t('Total Standard'), '৳${msg['totalStandardFare']}'),
+                      _buildFareBox(langProvider.t('Total Student'), '৳${msg['totalStudentFare']}'),
+                      Row(
+                        children: [
+                          const Icon(Icons.access_time, color: Colors.white70, size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${msg['eta'] ?? '--'}', 
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      )
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

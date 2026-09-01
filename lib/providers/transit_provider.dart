@@ -25,10 +25,15 @@ class TransitProvider extends ChangeNotifier {
   List<Bus> _buses = [];
   List<Bus> get buses => _buses;
 
+  // Holds the live fare matrix data for the AI Assistant
+  List<Map<String, dynamic>> _fareMatrices = [];
+  List<Map<String, dynamic>> get fareMatrices => _fareMatrices;
+
   final Map<String, List<LatLng>> _busDetailedRoutes = {};
 
   StreamSubscription<QuerySnapshot>? _stopsSubscription;
   StreamSubscription<QuerySnapshot>? _busesSubscription;
+  StreamSubscription<QuerySnapshot>? _fareMatricesSubscription;
   Timer? _simulationTimer;
 
   final Map<String, int> _busTargetIndex = {};
@@ -42,6 +47,7 @@ class TransitProvider extends ChangeNotifier {
   void dispose() {
     _stopsSubscription?.cancel();
     _busesSubscription?.cancel();
+    _fareMatricesSubscription?.cancel();
     _simulationTimer?.cancel();
     super.dispose();
   }
@@ -50,6 +56,7 @@ class TransitProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
+    // 1. Listen to Stops
     _stopsSubscription = _firestore.collection('bus_stops').snapshots().listen(
       (snapshot) {
         _stops = snapshot.docs.map((doc) {
@@ -68,6 +75,7 @@ class TransitProvider extends ChangeNotifier {
       },
     );
 
+    // 2. Listen to Buses
     _busesSubscription = _firestore.collection('buses').snapshots().listen(
       (snapshot) {
         _buses = snapshot.docs.map((doc) {
@@ -94,6 +102,14 @@ class TransitProvider extends ChangeNotifier {
           _startBusSimulation();
         });
         
+        notifyListeners();
+      },
+    );
+
+    // 3. Listen to Fare Matrices
+    _fareMatricesSubscription = _firestore.collection('fare_matrices').snapshots().listen(
+      (snapshot) {
+        _fareMatrices = snapshot.docs.map((doc) => doc.data()).toList();
         notifyListeners();
       },
     );
@@ -259,15 +275,45 @@ class TransitProvider extends ChangeNotifier {
     if (fromStop.id == toStop.id) return [];
 
     return _buses.where((bus) {
-      // Find the first occurrence of the departure stop
       final fromIndex = bus.stopIds.indexOf(fromStop.id);
-      
-      // Use lastIndexOf for the destination to handle circular routes
       final toIndex = bus.stopIds.lastIndexOf(toStop.id);
 
-      // Bus must contain both stops and travel From -> To
       return fromIndex >= 0 && toIndex >= 0 && fromIndex < toIndex;
     }).toList();
+  }
+
+  // NEW: Multi-Leg Transfer Finder for Smart Planner
+  Map<String, dynamic>? findMultiLegRoute(BusStop from, BusStop to) {
+    for (var bus1 in _buses) {
+      final fromIndex = bus1.stopIds.indexOf(from.id);
+      if (fromIndex == -1) continue;
+
+      for (int i = fromIndex + 1; i < bus1.stopIds.length; i++) {
+        final transferStopId = bus1.stopIds[i];
+
+        for (var bus2 in _buses) {
+          if (bus1.busId == bus2.busId) continue;
+
+          final transferIndex = bus2.stopIds.indexOf(transferStopId);
+          if (transferIndex == -1) continue;
+
+          final toIndex = bus2.stopIds.lastIndexOf(to.id);
+          if (toIndex != -1 && toIndex > transferIndex) {
+            final transferStop = _stops.firstWhere(
+              (s) => s.id == transferStopId,
+              orElse: () => _stops.first,
+            );
+
+            return {
+              'leg1Bus': bus1,
+              'leg2Bus': bus2,
+              'transferStop': transferStop,
+            };
+          }
+        }
+      }
+    }
+    return null;
   }
 
   int estimatedTravelTime(Bus bus, BusStop fromStop, BusStop toStop) {
@@ -280,7 +326,6 @@ class TransitProvider extends ChangeNotifier {
 
     final numberOfStops = toIndex - fromIndex;
     
-    // Each stop-to-stop segment is estimated as 5 minutes
     const minutesPerStop = 5;
     final estimated = numberOfStops * minutesPerStop;
 
@@ -306,7 +351,6 @@ class TransitProvider extends ChangeNotifier {
       final time = estimatedTravelTime(bus, fromStop, toStop);
       final fare = bus.standardFare;
       
-      // Balanced score: travel time + fare + small penalty for non-live buses
       final score = time + (fare * 0.20) + (bus.isLive ? 0 : 5);
 
       if (score < bestScore) {

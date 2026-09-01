@@ -12,12 +12,14 @@ class FareMatrixTab extends StatefulWidget {
 class _FareMatrixTabState extends State<FareMatrixTab> {
   String? _selectedOrigin;
   String? _selectedDestination;
-  final TextEditingController _fareController = TextEditingController();
+  final TextEditingController _standardFareController = TextEditingController();
+  final TextEditingController _studentFareController = TextEditingController();
   bool _isSaving = false;
 
   @override
   void dispose() {
-    _fareController.dispose();
+    _standardFareController.dispose();
+    _studentFareController.dispose();
     super.dispose();
   }
 
@@ -30,31 +32,33 @@ class _FareMatrixTabState extends State<FareMatrixTab> {
       return;
     }
 
-    final fare = double.tryParse(_fareController.text);
-    if (fare == null || fare <= 0) {
+    final standardFare = double.tryParse(_standardFareController.text);
+    final studentFare = double.tryParse(_studentFareController.text);
+
+    if (standardFare == null || standardFare <= 0 || studentFare == null || studentFare <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid fare amount.')),
+        const SnackBar(content: Text('Please enter valid fare amounts.')),
       );
       return;
     }
 
     setState(() => _isSaving = true);
 
-    // Create the exact pair key the database expects (e.g., "Mirpur 12_Science Lab")
     final pairKey = '${_selectedOrigin}_${_selectedDestination}';
     
-    await provider.updateFare(docId, pairKey, fare);
+    await provider.updateFare(docId, pairKey, standardFare, studentFare);
 
     setState(() {
       _isSaving = false;
       _selectedOrigin = null;
       _selectedDestination = null;
-      _fareController.clear();
+      _standardFareController.clear();
+      _studentFareController.clear();
     });
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Fare updated successfully! Student fare auto-calculated.'), backgroundColor: Colors.green),
+        const SnackBar(content: Text('Fares safely updated!'), backgroundColor: Colors.green),
       );
     }
   }
@@ -96,88 +100,122 @@ class _FareMatrixTabState extends State<FareMatrixTab> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 child: Padding(
                   padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.edit_road, size: 28),
-                          SizedBox(width: 8),
-                          Text('Update Fare', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      const Divider(height: 32),
-                      
-                      const Text('Origin Stop', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        value: _selectedOrigin,
-                        hint: const Text('Select Origin'),
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.edit_road, size: 28),
+                            SizedBox(width: 8),
+                            Text('Update Fare', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                          ],
                         ),
-                        items: stops.map((stop) => DropdownMenuItem(value: stop, child: Text(stop))).toList(),
-                        onChanged: (val) => setState(() => _selectedOrigin = val),
-                      ),
-                      
-                      const SizedBox(height: 16),
-                      
-                      const Text('Destination Stop', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        value: _selectedDestination,
-                        hint: const Text('Select Destination'),
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        ),
-                        items: stops.map((stop) => DropdownMenuItem(value: stop, child: Text(stop))).toList(),
-                        onChanged: (val) => setState(() => _selectedDestination = val),
-                      ),
-
-                      const SizedBox(height: 16),
-                      
-                      const Text('Standard Fare (৳)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _fareController,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          hintText: 'e.g. 20',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          prefixIcon: const Icon(Icons.attach_money),
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 24),
-                      
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(context).colorScheme.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        const Divider(height: 32),
+                        
+                        const Text('Origin Stop', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          value: _selectedOrigin,
+                          hint: const Text('Select Origin'),
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           ),
-                          onPressed: _isSaving ? null : () => _handleSaveFare(provider, docId),
-                          icon: _isSaving 
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
-                              : const Icon(Icons.save),
-                          label: const Text('SAVE TO MATRIX', style: TextStyle(fontWeight: FontWeight.bold)),
+                          items: stops.map((stop) => DropdownMenuItem(value: stop, child: Text(stop))).toList(),
+                          onChanged: (val) => setState(() => _selectedOrigin = val),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        '* Student fare (50%) will be generated automatically.', 
-                        style: TextStyle(color: Colors.grey, fontSize: 12, fontStyle: FontStyle.italic),
-                        textAlign: TextAlign.center,
-                      )
-                    ],
+                        
+                        const SizedBox(height: 16),
+                        
+                        const Text('Destination Stop', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          isExpanded: true,
+                          value: _selectedDestination,
+                          hint: const Text('Select Destination'),
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          ),
+                          items: stops.map((stop) => DropdownMenuItem(value: stop, child: Text(stop))).toList(),
+                          onChanged: (val) => setState(() => _selectedDestination = val),
+                        ),
+
+                        const SizedBox(height: 16),
+                        
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Standard Fare (৳)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: _standardFareController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      hintText: 'e.g. 20',
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                      prefixIcon: const Icon(Icons.attach_money),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Student Fare (৳)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: _studentFareController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      hintText: 'e.g. 10',
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                      prefixIcon: const Icon(Icons.money_off),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        const SizedBox(height: 24),
+                        
+                        // Save Single Fare Button
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Theme.of(context).colorScheme.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: _isSaving ? null : () => _handleSaveFare(provider, docId),
+                            icon: _isSaving 
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+                                : const Icon(Icons.save),
+                            label: const Text('SAVE TO MATRIX', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Note: Student fare = 50% of regular fare only applies when regular fare is 20tk and above.', 
+                          style: TextStyle(color: Colors.grey, fontSize: 12, fontStyle: FontStyle.italic),
+                          textAlign: TextAlign.center,
+                        )
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -250,7 +288,8 @@ class _FareMatrixTabState extends State<FareMatrixTab> {
                                         setState(() {
                                           _selectedOrigin = origin;
                                           _selectedDestination = destination;
-                                          _fareController.text = fares['standard'].toString();
+                                          _standardFareController.text = fares['standard'].toString();
+                                          _studentFareController.text = fares['student'].toString();
                                         });
                                       },
                                     ),

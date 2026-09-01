@@ -94,7 +94,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                 TextField(
                   controller: _emailController,
                   decoration: const InputDecoration(
-                    labelText: 'Email Address',
+                    labelText: 'Company Email',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.email),
                   ),

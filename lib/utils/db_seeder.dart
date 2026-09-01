@@ -111,11 +111,15 @@ class DatabaseSeeder {
     
     // 1. Create 20 Staff Members (10 Drivers, 10 Conductors)
     for (int i = 1; i <= 10; i++) {
+      // Calculate which bus this staff member belongs to based on your shifts (bk-101 to bk-105)
+      String assignedBusId = i <= 5 ? 'bk-10$i' : 'bk-10${i - 5}';
+      
       final driverRef = await _db.collection('staff').add({
         'name': driverNames[i - 1],
         'role': 'driver',
         'phone': '017000000${i.toString().padLeft(2, '0')}', 
         'company': bikashCompany,
+        'busId': assignedBusId,
         'complaintsCount': 0,
         'complaintHistory': [],
       });
@@ -126,6 +130,7 @@ class DatabaseSeeder {
         'role': 'conductor',
         'phone': '019000000${i.toString().padLeft(2, '0')}',
         'company': bikashCompany,
+        'busId': assignedBusId, 
         'complaintsCount': 0,
         'complaintHistory': [],
       });
