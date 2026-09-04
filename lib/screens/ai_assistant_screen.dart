@@ -6,7 +6,7 @@ import '../providers/language_provider.dart';
 import '../providers/transit_provider.dart';
 
 class AiAssistantScreen extends StatefulWidget {
-  final VoidCallback? onNavigateToMap; // Callback to switch to the Map tab
+  final VoidCallback? onNavigateToMap;
 
   const AiAssistantScreen({super.key, this.onNavigateToMap});
 
@@ -57,7 +57,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
 
     // Check if we already have this response cached locally
     if (_responseCache.containsKey(cacheKey)) {
-      await Future.delayed(const Duration(milliseconds: 150)); // Natural micro-delay
+      await Future.delayed(const Duration(milliseconds: 150));
       setState(() {
         _messages.add(Map<String, dynamic>.from(_responseCache[cacheKey]!));
         _isTyping = false;
